@@ -72,7 +72,12 @@ def _unsign(token: str) -> str | None:
 # ---- 生成 / 校验 -----------------------------------------------------------
 
 def generate() -> tuple[str, str]:
-    """返回 (captcha_id, svg)。captcha_id 自含答案与过期时间（签名保护）。"""
+    """返回 (captcha_id, svg)。captcha_id 自含答案与过期时间（签名保护）。
+
+    payload 里带随机 nonce：只含 {answer, expires_at} 的话，同一秒内相同算术题
+    会生成完全相同的 captcha_id——一个用户验证通过就把另一个用户同题的验证码
+    标记为已用（一次性语义被跨用户破坏，曾有测试在 CI 上稳定复现）。
+    """
     rng = random.Random(secrets.randbits(64))
     a, b = rng.randint(1, 9), rng.randint(1, 9)
     if rng.random() < 0.5:
@@ -81,7 +86,8 @@ def generate() -> tuple[str, str]:
         a, b = max(a, b), min(a, b)
         expr, answer = f"{a} - {b}", a - b
     expires_at = int(time.time()) + _TTL_SECONDS
-    captcha_id = _sign(f"{answer}|{expires_at}")
+    nonce = secrets.token_hex(8)
+    captcha_id = _sign(f"{nonce}|{answer}|{expires_at}")
     return captcha_id, _render_svg(expr, rng)
 
 
@@ -91,7 +97,10 @@ def verify(captcha_id: str, code: str) -> None:
     if not payload:
         raise CaptchaError("验证码无效")
     try:
-        answer_s, expires_s = payload.split("|")
+        parts = payload.split("|")
+        if len(parts) != 3:
+            raise ValueError("bad payload")
+        _nonce, answer_s, expires_s = parts
         answer, expires_at = int(answer_s), int(expires_s)
     except ValueError:
         raise CaptchaError("验证码无效") from None
