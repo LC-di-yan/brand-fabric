@@ -3,7 +3,7 @@
 [![CI](https://github.com/LC-di-yan/brand-fabric/actions/workflows/ci.yml/badge.svg)](https://github.com/LC-di-yan/brand-fabric/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Tests](https://img.shields.io/badge/tests-111%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-128%20passing-brightgreen)
 
 一个面向**多品牌电商代运营（TP）**场景的多租户数据中台：把多平台订单、退款、客服会话
 统一到一套分层数仓与指标体系，以 API 与看板对外服务，并保证品牌之间**数据严格隔离**。
@@ -33,6 +33,10 @@
   不接受外部过滤条件；越权 403 + 审计留痕；`ops` 角色必须显式指定租户。
 - **知识库与混合检索**：dense + sparse 双路召回 → RRF 融合 → 重排；
   Milvus（Partition Key 租户隔离）/ 本地 numpy 双后端；内置 200 条评测集与消融实验。
+- **Agentic RAG 检索管线**（`strategy=agentic`）：查询规划（分类/拆分/指代消解）→ 检索充分性
+  判定 → 预算内改写重试 → 有界多跳（文档内相邻切片 + 实体种子跨域）→ 抽取式上下文压缩
+  → 引用核验（编造引用拦截 + 支撑度置信分档）。零强制 LLM 依赖——无 LLM 时规则退化全链路
+  可用；100 条复合/含糊靶场实测 Recall@K 0.90 vs 直通 0.88，P95 13ms。
 - **多 Agent 批处理编排**：nightly 全链路 = 8 个任务（接入 → dwd 三路并行 → 汇总
   → 质量门禁 ‖ 知识库重建 → 指标按租户 fan-out）；DB 任务表作消息总线，带写域守卫、
   指数退避重试、协作式超时、心跳崩溃恢复。
@@ -107,7 +111,7 @@ python -m bdp.cli all
 ### 运行测试与检查
 
 ```bash
-pytest -q                         # 111 项测试（含租户越权矩阵与故障注入）
+pytest -q                         # 128 项测试（含租户越权矩阵与故障注入）
 ruff check src tests migrations   # lint
 python -m bdp.cli eval --top-k 5  # 检索消融评测
 ```
@@ -159,7 +163,7 @@ python -m bdp.cli agent ask "退款率怎么样" --tenant-id T001
 | 数据质量捕获 | 注入的空值/负值/超额退款全部命中，整体通过率 99.94% |
 | 混合检索 Recall@5 | **0.800**（纯稠密 0.760），P95 延迟 5.29ms（200 条自建评测集） |
 | 租户隔离 | 品牌越权 403 + 审计留痕；`ops` 未指定租户 403；改密后旧 token 401 |
-| 自动化测试 | **111 项全部通过**（CI 双 Python 版本强制） |
+| 自动化测试 | **128 项全部通过**（CI 双 Python 版本强制） |
 
 ## 七、目录结构
 
@@ -181,7 +185,7 @@ brand-fabric/
 │   ├── api/                      # FastAPI + 统一错误/请求 ID/指标中间件 + 前端静态资源
 │   │   └── static/js/views/      # 8 个前端视图（原生 ES Modules，零构建链）
 │   └── agents/                   # 多 agent 编排内核 + 6 个确定性/问答 agent
-└── tests/                        # 111 项测试
+└── tests/                        # 128 项测试
 ```
 
 ## 八、工程取舍

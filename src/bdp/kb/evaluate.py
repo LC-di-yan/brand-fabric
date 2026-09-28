@@ -157,6 +157,137 @@ def run_eval(session: Session, top_k: int = 5, backend: str | None = None, sampl
     return evaluate_modes(session, sample=sample, top_k=top_k, store=store)
 
 
+# ---------------------------------------------------------------------------
+# RAG 靶场：复合 / 多跳 / 含糊查询评测（docs/AGENTIC_RAG_PLAN.md §8）
+# ---------------------------------------------------------------------------
+
+def build_rag_eval_set(session: Session) -> list[dict]:
+    """构造 RAG 管线评测集（复合 + 含糊两类，约 100 条，从真实语料锚定 ground truth）。
+
+    与 build_eval_set（单跳、从语料自动生成）不同，本集合的查询是**人工模式**：
+    - compound：一个问题命中两个知识域（复合句），期望两个文档都进候选；
+    - colloquial：口语表述（"不想要了"），期望经改写后命中对应政策/FAQ 文档。
+
+    ground truth 用"标题关键词"从库中实际查出（标题格式 f"{品牌} {主题}"），
+    语料模板变化时自动跟随；product 域没有稳定标题关键词，回退取该域第一篇。
+    """
+    docs = session.execute(select(KbDocument)).scalars().all()
+
+    def pick(tenant: str, kb_type: str, title_kw: str | None) -> KbDocument | None:
+        cands = [d for d in docs if d.tenant_id == tenant and d.kb_type == kb_type]
+        if title_kw:
+            hit = [d for d in cands if title_kw in (d.title or "")]
+            if hit:
+                return hit[0]
+        return cands[0] if cands else None
+
+    tenants = sorted({d.tenant_id for d in docs})
+    eval_set: list[dict] = []
+
+    # (查询, [(域, 标题关键词), (域, 标题关键词)])——复合句，期望两个文档都命中
+    compound_templates = [
+        ("退货政策是什么，另外投诉安抚话术怎么说", [("policy", "退货"), ("sop", "投诉")]),
+        ("开发票有什么要求，另外发货时效是多久", [("policy", "发票"), ("policy", "发货")]),
+        ("运费怎么算，还有色差算质量问题吗", [("cs_faq", "运费"), ("cs_faq", "色差")]),
+        ("首响规范是什么，顺便说说面料材质", [("sop", "首响"), ("product", None)]),
+        ("价保规则和换货政策分别是什么", [("policy", "价保"), ("policy", "换货")]),
+        ("发票可以开吗，以及退款多久到账", [("cs_faq", "发票"), ("cs_faq", "退款")]),
+        ("投诉了怎么安抚，另外知识库怎么维护", [("sop", "投诉"), ("sop", "知识库")]),
+        ("维修保修政策，还有尺码怎么选", [("policy", "售后"), ("policy", "尺码")]),
+        ("会员积分怎么算，以及价保怎么申请", [("policy", "会员"), ("policy", "价保")]),
+        ("人工客服怎么转，还有货到付款支持吗", [("cs_faq", "人工"), ("cs_faq", "货到付款")]),
+    ]
+    # (查询, (域, 标题关键词))——口语化短句，期望经改写后命中正确文档
+    colloquial_templates = [
+        ("不想要了怎么办", ("policy", "退货")),
+        ("尺码不合适能换吗", ("policy", "换货")),
+        ("钱什么时候回来", ("cs_faq", "退款")),
+        ("多久发货啊", ("cs_faq", "发货")),
+        ("开票要什么信息", ("policy", "发票")),
+        ("买大了能换吗", ("policy", "换货")),
+        ("衣服坏了怎么办", ("policy", "售后")),
+        ("降价了能补差价吗", ("policy", "价保")),
+        ("怎么转人工", ("cs_faq", "人工")),
+        ("积分快过期了怎么办", ("policy", "会员")),
+        ("改一下收货地址", ("cs_faq", "收货地址")),
+        ("没货了怎么办", ("cs_faq", "断货")),
+        ("包装破损了怎么处理", ("cs_faq", "包装")),
+        ("可以货到付款吗", ("cs_faq", "货到付款")),
+        ("话术不合格会怎样", ("sop", "投诉")),
+    ]
+
+    for tenant in tenants:
+        for query, specs in compound_templates:
+            gt = [d.doc_id for d in (pick(tenant, kt, kw) for kt, kw in specs) if d]
+            if len(gt) == len(specs):
+                eval_set.append({"query": query, "tenant_id": tenant,
+                                 "kind": "compound", "gt_doc_ids": gt})
+        for query, (kt, kw) in colloquial_templates:
+            d = pick(tenant, kt, kw)
+            if d:
+                eval_set.append({"query": query, "tenant_id": tenant,
+                                 "kind": "colloquial", "gt_doc_ids": [d.doc_id]})
+    return eval_set
+
+
+def evaluate_rag(
+    session: Session,
+    *,
+    strategy: str = "single",
+    top_k: int = 5,
+    store=None,
+    embedder=None,
+    eval_set: list[dict] | None = None,
+) -> dict:
+    """RAG 管线消融评测：single vs agentic 在复合/含糊集上的对比。
+
+    指标：
+    - recall_at_k：ground truth 文档被任一候选命中的比例（多跳合并后的候选池口径）
+    - avg_hits：平均每个查询命中的 gt 文档数（复合查询的深度信号）
+    - p95_latency_ms：管线延迟（agentic 含判定与多跳）
+    """
+    from bdp.rag.pipeline import answer as rag_answer
+
+    eval_set = eval_set if eval_set is not None else build_rag_eval_set(session)
+    if not eval_set:
+        return {"error": "RAG 评测集为空，请先执行 kb 入库"}
+
+    store = store or build_store()
+    embedder = embedder or build_embedder()
+
+    hit_cases = 0
+    total_hits = 0
+    latencies: list[float] = []
+    degraded_cnt = 0
+    for case in eval_set:
+        t0 = time.perf_counter()
+        rag = rag_answer(
+            session, query=case["query"], tenant_id=case["tenant_id"],
+            strategy=strategy, top_k=top_k, store=store, embedder=embedder,
+        )
+        latencies.append((time.perf_counter() - t0) * 1000)
+        got = {(b["doc_id"]) for b in rag.blocks}
+        hits = sum(1 for g in case["gt_doc_ids"] if g in got)
+        total_hits += hits
+        if hits:
+            hit_cases += 1
+        if rag.degraded_reasons:
+            degraded_cnt += 1
+
+    n = len(eval_set)
+    latencies.sort()
+    return {
+        "strategy": strategy,
+        "eval_set_size": n,
+        "recall_at_k": round(hit_cases / n, 4),
+        "avg_hits_per_query": round(total_hits / n, 4),
+        "degraded_rate": round(degraded_cnt / n, 4),
+        "p50_latency_ms": round(latencies[n // 2], 2),
+        "p95_latency_ms": round(latencies[min(n - 1, int(n * 0.95))], 2),
+        "evaluated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
 def compare_chunking(
     session: Session,
     *,

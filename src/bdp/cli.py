@@ -153,10 +153,32 @@ def cmd_api(args) -> int:
     return 0
 
 
+def _eval_rag(session, *, top_k: int) -> int:
+    """RAG 管线消融：single vs agentic 在复合/含糊靶场上的对比（docs/AGENTIC_RAG_PLAN.md §8）。"""
+    from bdp.kb.evaluate import build_rag_eval_set, evaluate_rag
+
+    eval_set = build_rag_eval_set(session)
+    rows = []
+    for strategy in ("single", "agentic"):
+        rows.append(evaluate_rag(session, strategy=strategy, top_k=top_k, eval_set=eval_set))
+    _print("RAG 管线消融（复合/含糊靶场）", {"eval_set_size": len(eval_set), "top_k": top_k})
+    header = f"{'策略':<10}{'Recall@K':<10}{'均命中':<8}{'降级率':<8}{'P50(ms)':<9}{'P95(ms)'}"
+    print(header)
+    print("-" * len(header))
+    for r in rows:
+        print(
+            f"{r['strategy']:<10}{r['recall_at_k']:<10}{r['avg_hits_per_query']:<8}"
+            f"{r['degraded_rate']:<8}{r['p50_latency_ms']:<9}{r['p95_latency_ms']}"
+        )
+    return 0
+
+
 def cmd_eval(args) -> int:
     from bdp.kb.evaluate import compare_chunking, run_eval
 
     with session_scope() as session:
+        if getattr(args, "rag", False):
+            return _eval_rag(session, top_k=args.top_k)
         if args.chunking:
             result = compare_chunking(session, sample=args.sample, top_k=args.top_k)
             _print("切片策略对比", result)
@@ -381,6 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--backend", default=None)
     p.add_argument("--sample", type=int, default=200, help="评测集规模")
     p.add_argument("--chunking", action="store_true", help="改为对比切片策略（fixed/semantic/hierarchical）")
+    p.add_argument("--rag", action="store_true", help="改为 RAG 管线消融（single vs agentic，复合/含糊集）")
     p.set_defaults(func=cmd_eval)
 
     p = sub.add_parser("api", help="启动 API 与看板")

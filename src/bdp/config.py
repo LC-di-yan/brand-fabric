@@ -72,6 +72,18 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_timeout_sec: float = 60.0
 
+    # Agentic RAG（检索管线升级，docs/AGENTIC_RAG_PLAN.md）
+    # single：现状直通（一次检索）；agentic：规划→检索→判定→改写/多跳→压缩→引用核验
+    rag_strategy: str = "single"
+    rag_max_rewrites: int = 2          # 改写预算（额外检索次数上限）
+    rag_max_hops: int = 2              # 多跳预算
+    rag_judge_threshold: float = 0.4   # 检索充分性阈值（按实测分布校准：中位 0.55/p25 0.45，取 p25 下方）
+    rag_judge_backend: str = "heuristic"  # heuristic | llm
+    rag_rerank_backend: str = "lexical"   # lexical | bge（bge 需 sentence-transformers）
+    rag_compress_token_budget: int = 3000
+    rag_session_turns: int = 5         # 会话记忆保留轮数
+    rag_top_k: int = 4                 # 管线每跳召回的最终保留数
+
     log_level: str = "INFO"
 
     # CORS 允许来源（逗号分隔）。默认为空 = 不启用 CORS 中间件：

@@ -82,6 +82,8 @@ TOOLS_SCHEMA = [
 
 class InsightInput(BaseModel):
     question: str
+    thread_id: str = ""    # 会话 ID（多轮指代消解；空 = 新会话）
+    strategy: str = ""     # RAG 策略覆盖（"" = 读配置；single | agentic）
 
 
 def _default_window(session_factory, days: int = 30) -> tuple[date, date]:
@@ -100,11 +102,13 @@ def _default_window(session_factory, days: int = 30) -> tuple[date, date]:
     return today - timedelta(days=days - 1), today
 
 
-def _tool_executor(ctx: AgentContext, citations: list[dict], tool_trace: list[dict]) -> dict:
+def _tool_executor(ctx: AgentContext, citations: list[dict], tool_trace: list[dict],
+                   rag_state: dict) -> dict:
     """构造绑定租户上下文的工具实现。
 
     租户不出现在 LLM 可见的参数中——由 ctx 注入，跨租户查询在签名层面不可达。
     每次调用同时登记引用与轨迹。
+    rag_state 携带 RAG 管线状态（strategy / 候选池 / 会话历史），供引用核验与消解。
     """
 
     def query_metric(args: dict) -> dict:
@@ -145,30 +149,77 @@ def _tool_executor(ctx: AgentContext, citations: list[dict], tool_trace: list[di
         return result
 
     def search_kb(args: dict) -> dict:
-        from bdp.kb.retriever import search
+        strategy = rag_state.get("strategy", "single")
+
+        if strategy != "agentic":
+            # ---- single：现状直通路径（与升级前逐字段等价）----
+            from bdp.kb.retriever import search
+
+            with ctx.session(commit_on_exit=False) as session:
+                result = search(
+                    session,
+                    query=str(args.get("query") or ""),
+                    tenant_id=ctx.tenant_id,  # 无租户会被 retriever 硬拒绝
+                    kb_type=args.get("kb_type"),
+                    top_k=int(args.get("top_k") or 3),
+                )
+            hits = result.get("results", [])
+            for r in hits:
+                key = (r["doc_id"], int(r["chunk_ix"]))
+                rag_state["candidates"][key] = r.get("text", "")
+                citations.append({
+                    "type": "kb", "doc_id": r["doc_id"], "kb_type": r["kb_type"],
+                    "chunk_ix": r["chunk_ix"],
+                })
+            tool_trace.append({"tool": "search_kb", "args": args, "ok": True, "hits": len(hits)})
+            return {
+                "results": [
+                    {"doc_id": r["doc_id"], "kb_type": r["kb_type"], "chunk_ix": r["chunk_ix"],
+                     "text": r["text"][:400], "score": r["score"]}
+                    for r in hits
+                ],
+                "warning": result.get("warning"),
+            }
+
+        # ---- agentic：Agentic RAG 管线（规划/判定/多跳/压缩，见 rag/pipeline.py）----
+        from bdp.rag import pipeline as rag_pipeline
 
         with ctx.session(commit_on_exit=False) as session:
-            result = search(
+            rag = rag_pipeline.answer(
                 session,
                 query=str(args.get("query") or ""),
-                tenant_id=ctx.tenant_id,  # 无租户会被 retriever 硬拒绝
-                kb_type=args.get("kb_type"),
+                tenant_id=ctx.tenant_id,  # 无租户会被检索器硬拒绝
+                strategy="agentic",
+                history=rag_state.get("history") or [],
                 top_k=int(args.get("top_k") or 3),
+                kb_type=args.get("kb_type"),
             )
-        hits = result.get("results", [])
-        for r in hits:
+        rag.trace and rag_state.setdefault("pipeline_traces", []).append(
+            {"query": args.get("query"), "steps": rag.trace}
+        )
+        for b in rag.blocks:
+            key = (b["doc_id"], int(b["chunk_ix"] or 0))
+            rag_state["candidates"][key] = b.get("text", "")
             citations.append({
-                "type": "kb", "doc_id": r["doc_id"], "kb_type": r["kb_type"],
-                "chunk_ix": r["chunk_ix"],
+                "type": "kb", "doc_id": b["doc_id"], "kb_type": b["kb_type"],
+                "chunk_ix": b["chunk_ix"],
             })
-        tool_trace.append({"tool": "search_kb", "args": args, "ok": True, "hits": len(hits)})
+        tool_trace.append({
+            "tool": "search_kb", "args": args, "ok": True,
+            "hits": len(rag.blocks), "strategy": "agentic",
+            "retrieval_confidence": rag.retrieval_confidence,
+            "trace": rag.trace,
+        })
         return {
             "results": [
-                {"doc_id": r["doc_id"], "kb_type": r["kb_type"], "chunk_ix": r["chunk_ix"],
-                 "text": r["text"][:400], "score": r["score"]}
-                for r in hits
+                {"doc_id": b["doc_id"], "kb_type": b["kb_type"], "chunk_ix": b["chunk_ix"],
+                 "text": b["text"][:400], "score": b["score"]}
+                for b in rag.blocks
             ],
-            "warning": result.get("warning"),
+            # 管线识别出的指标意图：LLM 应改用 query_metric 工具获取数值
+            "metric_intent": rag.metric_codes,
+            "degraded_reasons": rag.degraded_reasons,
+            "warning": "；".join(rag.degraded_reasons) or None,
         }
 
     def dq_summary(args: dict) -> dict:
@@ -184,11 +235,11 @@ def _tool_executor(ctx: AgentContext, citations: list[dict], tool_trace: list[di
 
 
 def _degraded_answer(ctx: AgentContext, question: str, start: date, end: date,
-                     reason: str) -> AgentResult:
+                     reason: str, rag_state: dict) -> AgentResult:
     """LLM 不可用时的确定性回答：默认指标卡片 + 检索片段，degraded 显式标记。"""
     citations: list[dict] = []
     tool_trace: list[dict] = []
-    tools = _tool_executor(ctx, citations, tool_trace)
+    tools = _tool_executor(ctx, citations, tool_trace, rag_state)
 
     cards = []
     for code in DEFAULT_METRICS:
@@ -223,6 +274,9 @@ def _degraded_answer(ctx: AgentContext, question: str, start: date, end: date,
             "degraded": True, "reason": reason, "question": question,
             "answer": "\n".join(lines), "citations": citations,
             "cards": cards, "kb_refs": kb_hits, "tool_trace": tool_trace,
+            "thread_id": rag_state.get("thread_id", ""),
+            "strategy": rag_state.get("strategy", "single"),
+            "confidence": "",
         }},
         stats={"mode": "degraded", "cards": len(cards), "kb_hits": len(kb_hits)},
         warning=reason,
@@ -241,6 +295,7 @@ class InsightAgent:
 
     def run(self, ctx: AgentContext) -> AgentResult:
         from bdp.agents.llm import LLMUnavailable, LLMClient, tool_call_arguments
+        from bdp.config import settings
 
         inp = InsightInput(**ctx.params)
         question = inp.question.strip()
@@ -250,20 +305,38 @@ class InsightAgent:
             # 与 /v1/kb/search 同一规则：知识与分析与品牌强绑定，平台级聚合问答不开放
             raise FatalError("业务问答必须指定租户（品牌语境）")
 
+        strategy = inp.strategy or settings.rag_strategy
+        thread_id = inp.thread_id or ""
+        rag_state: dict = {
+            "strategy": strategy, "thread_id": thread_id,
+            "candidates": {}, "pipeline_traces": [],
+        }
+        # 会话历史：多轮指代消解的上下文（agentic 生效；single 忽略）
+        if thread_id:
+            from bdp.rag.session import load_history
+
+            with ctx.session(commit_on_exit=False) as session:
+                rag_state["history"] = load_history(session, thread_id)
+
         start, end = _default_window(ctx.session_factory)
         citations: list[dict] = []
         tool_trace: list[dict] = []
-        tools = _tool_executor(ctx, citations, tool_trace)
+        tools = _tool_executor(ctx, citations, tool_trace, rag_state)
 
         try:
             llm = LLMClient()
         except LLMUnavailable as exc:
-            return _degraded_answer(ctx, question, start, end, str(exc))
+            return _degraded_answer(ctx, question, start, end, str(exc), rag_state)
 
+        history_note = ""
+        if rag_state.get("history"):
+            prev = rag_state["history"][-1]
+            history_note = f"\n（上一轮问题：{prev['question']}）"
         messages: list[dict] = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",
-             "content": f"当前租户：{ctx.tenant_id}。数据窗口：{start} ~ {end}。\n问题：{question}"},
+             "content": f"当前租户：{ctx.tenant_id}。数据窗口：{start} ~ {end}。"
+                        f"RAG 模式：{strategy}。{history_note}\n问题：{question}"},
         ]
 
         try:
@@ -271,8 +344,9 @@ class InsightAgent:
                 message = llm.chat(messages, tools=TOOLS_SCHEMA)
                 calls = tool_call_arguments(message)
                 if not calls:
-                    return self._finish(ctx, question, str(message.get("content") or ""),
-                                        citations, tool_trace, started=time.time(),
+                    answer = str(message.get("content") or "")
+                    return self._finish(ctx, question, answer, citations, tool_trace,
+                                        rag_state=rag_state, started=time.time(),
                                         degraded=False)
                 messages.append(message)
                 for call_id, name, args in calls:
@@ -289,21 +363,39 @@ class InsightAgent:
                         "content": json.dumps(result, ensure_ascii=False, default=str),
                     })
             return self._finish(ctx, question, "（已达工具调用轮次上限，请缩小问题范围）",
-                                citations, tool_trace, started=time.time(), degraded=True)
+                                citations, tool_trace, rag_state=rag_state,
+                                started=time.time(), degraded=True)
         except LLMUnavailable as exc:
-            return _degraded_answer(ctx, question, start, end, str(exc))
+            return _degraded_answer(ctx, question, start, end, str(exc), rag_state)
 
     def _finish(self, ctx: AgentContext, question: str, answer: str, citations: list[dict],
-                tool_trace: list[dict], *, started: float, degraded: bool) -> AgentResult:
+                tool_trace: list[dict], rag_state: dict, *, started: float,
+                degraded: bool) -> AgentResult:
+        from bdp.rag.grounding import check_answer
+
+        kb_citations = [c for c in citations if c.get("type") == "kb"]
+        candidate_index = {
+            (doc_id, int(ix)) for doc_id, ix in (
+                (k[0], k[1]) for k in rag_state.get("candidates", {})
+            )
+        }
+        report = check_answer(answer, kb_citations, candidate_index, rag_state.get("candidates", {}))
+        # 编造引用 → 降级标记（答案已返回，但调用方按 degraded 处理并提示用户）
+        if not report.ok and kb_citations:
+            degraded = True
+
         with ctx.session() as session:
             from bdp.models import InsightLog
 
             session.add(InsightLog(
                 tenant_id=ctx.tenant_id or "",
+                thread_id=rag_state.get("thread_id", ""),
                 question=question, answer=answer,
                 citations=citations, tool_trace=tool_trace,
                 degraded=degraded,
                 elapsed_ms=int((time.time() - started) * 1000),
+                strategy=rag_state.get("strategy", "single"),
+                confidence=report.confidence,
             ))
 
         return AgentResult(
@@ -311,9 +403,15 @@ class InsightAgent:
             artifacts={"insight": {
                 "degraded": degraded, "question": question, "answer": answer,
                 "citations": citations, "tool_trace": tool_trace,
+                "thread_id": rag_state.get("thread_id", ""),
+                "strategy": rag_state.get("strategy", "single"),
+                "confidence": report.confidence,
+                "grounding": report.to_dict(),
+                "pipeline_traces": rag_state.get("pipeline_traces", []),
             }},
             stats={"mode": "llm_round_limit" if degraded else "llm",
-                   "tool_calls": len(tool_trace)},
+                   "tool_calls": len(tool_trace),
+                   "confidence": report.confidence},
             warning="达到工具轮次上限" if degraded else None,
         )
 

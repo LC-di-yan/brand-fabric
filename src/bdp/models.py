@@ -546,16 +546,23 @@ class AgentEvent(Base):
 
 
 class InsightLog(Base):
-    """InsightAgent 问答留痕：问题、答案、引用与工具调用轨迹可溯源。"""
+    """InsightAgent 问答留痕：问题、答案、引用与工具调用轨迹可溯源。
+
+    thread_id 支撑多轮会话（rag/session.py 按其读最近 N 轮做指代消解）；
+    strategy/confidence 记录 RAG 管线模式与检索充分性（Agentic RAG）。
+    """
 
     __tablename__ = "insight_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ts: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     tenant_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(48), index=True, default="", nullable=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str] = mapped_column(Text, default="", nullable=False)
     citations: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     tool_trace: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     degraded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     elapsed_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    strategy: Mapped[str] = mapped_column(String(16), default="single", nullable=False)
+    confidence: Mapped[str] = mapped_column(String(8), default="", nullable=False)

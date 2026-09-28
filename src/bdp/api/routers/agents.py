@@ -153,22 +153,34 @@ def retry_task(
 class AgentAskRequest(BaseModel):
     question: str
     tenant_id: str | None = None  # 仅平台级账号需要显式指定；品牌账号以其绑定租户为准
+    strategy: str | None = None   # RAG 策略覆盖：single | agentic（缺省读配置）
+    thread_id: str | None = None  # 会话 ID（多轮指代消解；缺省 = 新会话）
 
 
-@router.post("/v1/agent/ask", summary="业务问答（InsightAgent，租户隔离）")
+@router.post("/v1/agent/ask", summary="业务问答（InsightAgent，租户隔离，支持 Agentic RAG）")
 def agent_ask(payload: AgentAskRequest, effective_tenant: str | None = Depends(tenant_guard(
         "agent.ask", "insight_log"))) -> dict:
-    """与 /v1/kb/search 相同的租户规则：不接受无租户问答（知识与分析与品牌强绑定）。"""
+    """与 /v1/kb/search 相同的租户规则：不接受无租户问答（知识与分析与品牌强绑定）。
+
+    strategy="agentic" 启用 Agentic RAG 管线（规划/判定/多跳/压缩/引用核验）；
+    thread_id 传入可延续多轮会话（指代消解），缺省新建会话并在响应中返回。
+    """
     from bdp.agents.orchestrator import run_agent_inline
     from bdp.agents.spec import TenantScope
+    from bdp.rag.session import new_thread_id
 
     if not effective_tenant:
         raise HTTPException(
             status_code=400,
             detail="业务问答必须指定租户（X-Tenant-Id），平台级身份不支持跨品牌聚合问答",
         )
+    if payload.strategy not in (None, "", "single", "agentic"):
+        raise HTTPException(status_code=400, detail="strategy 仅支持 single | agentic")
+    thread_id = payload.thread_id or new_thread_id()
     result = run_agent_inline(
-        "insight", {"question": payload.question},
+        "insight",
+        {"question": payload.question, "thread_id": thread_id,
+         "strategy": payload.strategy or ""},
         scope=TenantScope(tenant_id=effective_tenant),
         task_name=f"ask:{effective_tenant}",
     )
@@ -176,11 +188,60 @@ def agent_ask(payload: AgentAskRequest, effective_tenant: str | None = Depends(t
     return {
         "question": payload.question,
         "tenant_id": effective_tenant,
+        "thread_id": insight.get("thread_id") or thread_id,
+        "strategy": insight.get("strategy") or "single",
+        "confidence": insight.get("confidence", ""),
         "answer": insight.get("answer", ""),
         "degraded": result.status == "degraded",
         "degraded_reason": result.warning,
         "citations": insight.get("citations", []),
+        "tool_trace": insight.get("tool_trace", []),
         "mode": result.stats.get("mode"),
+    }
+
+
+@router.get("/v1/rag/trace/{insight_id}", summary="RAG 推理轨迹回放（按问答留痕 ID）")
+def rag_trace(
+    insight_id: int,
+    principal: Principal = Depends(require_roles("admin", "ops", "brand")),
+    effective_tenant: str | None = Depends(tenant_guard("rag.trace", "insight_log")),
+) -> dict:
+    """回放一次问答的管线轨迹（规划/检索/判定/多跳/压缩）。
+
+    brand 账号只能看本租户的留痕；admin/ops 可看全部。
+    """
+    from sqlalchemy import select
+
+    from bdp.db import get_db
+    from bdp.models import InsightLog
+
+    session = next(get_db())
+    row = session.execute(
+        select(InsightLog).where(InsightLog.id == insight_id)
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"留痕 {insight_id} 不存在")
+    # brand 角色行级隔离：本租户留痕之外一律 404（不暴露存在性）
+    if principal.role == "brand" and row.tenant_id != (principal.tenant_id or ""):
+        raise HTTPException(status_code=404, detail=f"留痕 {insight_id} 不存在")
+
+    # 从 tool_trace 里抽出 RAG 管线轨迹（search_kb 的 agentic 调用带完整 steps）
+    pipeline_traces = [
+        {"query": t.get("args", {}).get("query"), "steps": t.get("trace", [])}
+        for t in (row.tool_trace or [])
+        if t.get("tool") == "search_kb" and t.get("strategy") == "agentic" and t.get("trace")
+    ]
+    return {
+        "insight_id": row.id,
+        "tenant_id": row.tenant_id,
+        "thread_id": row.thread_id,
+        "question": row.question,
+        "degraded": row.degraded,
+        "strategy": row.strategy,
+        "confidence": row.confidence,
+        "elapsed_ms": row.elapsed_ms,
+        "tool_trace": row.tool_trace or [],
+        "pipeline_traces": pipeline_traces,
     }
 
 

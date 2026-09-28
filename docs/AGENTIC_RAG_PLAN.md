@@ -1,7 +1,15 @@
 # Agentic RAG 演进方案（brand-fabric）
 
-> 基于 2026-09-28 对检索与问答链路（`kb/retriever.py`、`kb/store.py`、`kb/evaluate.py`、
-> `agents/insight_agent.py`、`agents/llm.py`）的逐模块阅读。
+> **状态：P0-P4 已全部落地**（2026-09-28）。`src/bdp/rag/` 七模块 + InsightAgent 接线 +
+> API（strategy/thread_id/trace/confidence）+ 100 条复合/含糊靶场 + `cli eval --rag` 消融。
+> 实测（lite 模式、无 LLM、top_k=4）：Recall@K agentic 0.90 vs single 0.88，
+> 均命中 1.29 vs 1.20，P95 13.4ms（≤3× 预算内），降级率 13%。
+> 实施中的关键修正记录：① 域提示是先验不是铁律——低分时解锁全域重试（"多久发货啊"
+> 提示 policy 但真答案在 cs_faq）；② 改写只针对未达标子查询，达标子查询的命中保留
+> 参与合并（修复复合题丢文档）；③ 判定阈值按实测分布校准（中位 0.55/p25 0.45 → 默认 0.4），
+> 并过滤纯语气词避免口语查询覆盖度天花板被压死。
+
+> 以下为方案原文（基于 2026-09-28 对检索与问答链路的逐模块阅读）。
 > 所有结论标注真实代码位置；所有新组件为纯 Python + SQLAlchemy 实现，**零强制新增依赖**——
 > LLM 未配置时全链路走确定性退化路径，lite/full 双模式均可运行与测试。
 
