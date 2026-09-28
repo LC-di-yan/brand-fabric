@@ -81,40 +81,57 @@ class Dag:
 
 
 def _nightly() -> Dag:
-    """全链路日批：接入 → 数仓三路并行 → 汇总 → [质量 ‖ 知识库] → 指标（带门禁 + 租户展开）。"""
+    """全链路日批：接入 → 数仓三路并行 → 汇总 → [质量 ‖ 知识库] → 指标（带门禁 + 租户展开）。
+
+    BDP_AGENT_VERIFIER=true 时追加只读复核任务（结论复核：物化行数水位/口径一致性/
+    负值扫描），fan-in 之后执行；verdict=fail → run 标 degraded（复核不阻断物化，
+    但降级显式可见——与"静默降级必须消灭"一致）。
+    """
+    from bdp.config import settings
+
+    tasks = [
+        TaskDef(name="ingest", agent="ingest", deps=[]),
+        TaskDef(
+            name="dwd_orders", agent="pipeline", deps=["ingest"],
+            params={"domain": "orders"}, write_domains=("dwd_order",),
+            lock_keys=["dwd_orders"],
+        ),
+        TaskDef(
+            name="dwd_refunds", agent="pipeline", deps=["ingest"],
+            params={"domain": "refunds"}, write_domains=("dwd_refund",),
+            lock_keys=["dwd_refunds"],
+        ),
+        TaskDef(
+            name="dwd_cs", agent="pipeline", deps=["ingest"],
+            params={"domain": "cs"}, write_domains=("dwd_cs",),
+            lock_keys=["dwd_cs"],
+        ),
+        TaskDef(
+            name="dws", agent="pipeline", deps=["dwd_orders", "dwd_refunds", "dwd_cs"],
+            params={"domain": "dws"}, write_domains=("dws",), lock_keys=["dws"],
+        ),
+        TaskDef(name="quality", agent="quality", deps=["dws"]),
+        TaskDef(name="kb_rebuild", agent="kb", deps=["dws"]),
+        TaskDef(
+            name="metrics", agent="metrics", deps=["dws", "quality"],
+            params={"kind": "prepare"},
+            artifact_keys=["dq"],
+            fan_out="tenants",
+        ),
+    ]
+    if settings.agent_verifier:
+        # fan-in 之后复核：metric_result 物化完成（含全部租户子任务）才有得验。
+        # metrics 是 fan-out 父任务，其"完成"不含子任务——依赖组名 metrics 的展开
+        # 由 _finalize_groups 的组语义覆盖（子任务全部终态后组才终态），
+        # 但 DAG deps 校验只认任务名，因此 verify 依赖父任务名，实际就绪时点
+        # 由 orchestrator 的组依赖语义保证（父 + 组内全成功）。
+        tasks.append(TaskDef(name="verify", agent="verifier", deps=["metrics"],
+                            write_domains=()))
     return Dag(
         dag_id="nightly",
-        description="接入 → dwd 三路 → dws → quality ‖ kb_rebuild → metrics(fan-out 按租户)",
-        tasks=[
-            TaskDef(name="ingest", agent="ingest", deps=[]),
-            TaskDef(
-                name="dwd_orders", agent="pipeline", deps=["ingest"],
-                params={"domain": "orders"}, write_domains=("dwd_order",),
-                lock_keys=["dwd_orders"],
-            ),
-            TaskDef(
-                name="dwd_refunds", agent="pipeline", deps=["ingest"],
-                params={"domain": "refunds"}, write_domains=("dwd_refund",),
-                lock_keys=["dwd_refunds"],
-            ),
-            TaskDef(
-                name="dwd_cs", agent="pipeline", deps=["ingest"],
-                params={"domain": "cs"}, write_domains=("dwd_cs",),
-                lock_keys=["dwd_cs"],
-            ),
-            TaskDef(
-                name="dws", agent="pipeline", deps=["dwd_orders", "dwd_refunds", "dwd_cs"],
-                params={"domain": "dws"}, write_domains=("dws",), lock_keys=["dws"],
-            ),
-            TaskDef(name="quality", agent="quality", deps=["dws"]),
-            TaskDef(name="kb_rebuild", agent="kb", deps=["dws"]),
-            TaskDef(
-                name="metrics", agent="metrics", deps=["dws", "quality"],
-                params={"kind": "prepare"},
-                artifact_keys=["dq"],
-                fan_out="tenants",
-            ),
-        ],
+        description="接入 → dwd 三路 → dws → quality ‖ kb_rebuild → metrics(fan-out 按租户)"
+                    + (" → verify" if settings.agent_verifier else ""),
+        tasks=tasks,
     )
 
 

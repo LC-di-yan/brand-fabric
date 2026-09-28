@@ -32,6 +32,8 @@ _LEVEL_HIGH = 2.0
 
 class VerifierInput(BaseModel):
     kind: Literal["verify"] = "verify"
+    # caliber_diff 模板透传：聚焦对账该指标的口径（None = 全量扫描）
+    metric_code: str | None = None
 
 
 class VerifierAgent:
@@ -45,11 +47,12 @@ class VerifierAgent:
     )
 
     def run(self, ctx: AgentContext) -> AgentResult:
+        inp = VerifierInput(**ctx.params)
         findings: list[dict] = []
         try:
             with ctx.session(commit_on_exit=False) as session:
                 findings.extend(self._check_volume(session))
-                findings.extend(self._check_caliber(session))
+                findings.extend(self._check_caliber(session, inp.metric_code))
                 findings.extend(self._check_negative(session))
         except FatalError:
             raise
@@ -105,11 +108,15 @@ class VerifierAgent:
             })
         return findings
 
-    def _check_caliber(self, session) -> list[dict]:
-        """口径一致性：物化里的 (code, version) 必须存在于字典。"""
-        used = session.execute(
-            select(MetricResult.metric_code, MetricResult.caliber_version).distinct()
-        ).all()
+    def _check_caliber(self, session, metric_code: str | None = None) -> list[dict]:
+        """口径一致性：物化里的 (code, version) 必须存在于字典。
+
+        metric_code 传入时聚焦对账该指标（caliber_diff 模板用法）。
+        """
+        stmt = select(MetricResult.metric_code, MetricResult.caliber_version).distinct()
+        if metric_code:
+            stmt = stmt.where(MetricResult.metric_code == metric_code)
+        used = session.execute(stmt).all()
         known = set(session.execute(
             select(MetricDef.metric_code, MetricDef.caliber_version)
         ).all())

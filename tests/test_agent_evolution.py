@@ -338,3 +338,92 @@ def _run_count() -> int:
 
     with session_scope() as s:
         return int(s.execute(select(func.count()).select_from(AgentRun)).scalar_one())
+
+
+# ---------------------------------------------------------------------------
+# 收尾补强：verify 入 DAG / caliber_diff 接线 / artifact schema / fan-out 重建
+# ---------------------------------------------------------------------------
+
+def test_nightly_includes_verify_when_enabled(monkeypatch):
+    """agent_verifier=true 时 nightly 追加只读 verify 任务（fan-in 之后）。"""
+    from bdp.agents.dag import _nightly
+    from bdp.agents import registry
+    from bdp.config import settings
+
+    registry.ensure_loaded()
+    old = settings.agent_verifier
+    try:
+        settings.agent_verifier = False
+        assert len(_nightly().tasks) == 8
+        settings.agent_verifier = True
+        dag = _nightly()
+        dag.validate()  # verify 必须过 DAG 校验（agent 已注册/无环）
+        verify = dag.task("verify")
+        assert verify.agent == "verifier" and verify.deps == ["metrics"]
+        assert verify.write_domains == ()  # 只读
+    finally:
+        settings.agent_verifier = old
+
+
+def test_planner_caliber_diff_runs_verifier():
+    """caliber_diff 模板派 Verifier（只读对账），不是 quality。"""
+    from bdp.agents.planner import plan_to_dag
+
+    _, dag = plan_to_dag("GMV_PAID 口径版本对账", None)
+    verify = dag.task("verify")
+    assert verify.agent == "verifier"
+    assert verify.write_domains == ()
+    assert verify.params.get("metric_code") == "GMV_PAID"
+
+
+def test_artifact_schema_gate_blocks_incomplete_payload(seeded):
+    """生产者与 schema 契约脱节 → 写 artifact 立即失败（优于下游静默拿 None）。"""
+    from bdp.agents.errors import FatalError
+    from bdp.agents.state import StateStore
+
+    store = StateStore()
+    rid = store.create_run("nightly", "test", {})
+    with pytest.raises(FatalError, match="缺少必备字段"):
+        store.put_artifact(rid, "metrics", {"start": "x"}, "broken-producer")
+    # 合规 payload 正常写入
+    store.put_artifact(rid, "metrics",
+                       {"start": "2026-01-01", "end": "2026-01-31", "gate": "pass"},
+                       "metrics")
+    assert store.get_artifacts(rid)["metrics"]["gate"] == "pass"
+    # 未登记 schema 的 key 不受约束
+    store.put_artifact(rid, "free_form", {}, "anyone")
+
+
+def test_worker_reconstructs_fanout_taskdef():
+    """worker 进程重建 fan-out 子任务 TaskDef：artifact_keys 从父任务继承。"""
+    from bdp.agents.dag import get_dag
+    from bdp.worker import reconstruct_fanout_taskdef
+
+    dag = get_dag("nightly")
+
+    class FakeTask:
+        name = "metrics#T001"
+        agent = "metrics"
+        deps = ["metrics"]
+        params = {"kind": "materialize_tenant"}
+        parent_task = "metrics"
+        group = "metrics"
+        write_domains = ["metric_result"]
+        lock_keys = ["metric:T001"]
+
+    td = reconstruct_fanout_taskdef(dag, FakeTask())
+    assert td is not None
+    assert td.artifact_keys == ["dq"], "丢 artifact_keys 会让物化子任务拿不到窗口"
+    assert tuple(td.write_domains) == ("metric_result",)
+
+    class Normal:
+        name = "ingest"
+        agent = "ingest"
+        deps = []
+        params = {}
+        parent_task = None
+        group = None
+        write_domains = []
+        lock_keys = []
+
+    assert reconstruct_fanout_taskdef(dag, Normal()) is None

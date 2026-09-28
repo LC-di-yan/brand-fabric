@@ -260,7 +260,28 @@ class StateStore:
 
     # ---- artifact / event -------------------------------------------------
 
+    # artifact schema 信封（P3）：key → 允许的 payload 结构版本。
+    # 生产者写入时校验必备字段（缺字段 = 生产者代码与契约脱节，立即失败优于
+    # 消费者静默拿到 None）；消费者读取时带 expect_schema 可做同款断言。
+    ARTIFACT_SCHEMAS: dict[str, dict] = {
+        # metrics 窗口：物化子任务与 Verifier 依赖 start/end/gate
+        "metrics": {"required": ("start", "end", "gate")},
+        "dq": {"required": ("verdict", "pass_rate")},
+        "verify": {"required": ("verdict", "findings")},
+        "kb": {"required": ("documents", "chunks")},
+    }
+
     def put_artifact(self, run_id: str, key: str, value: dict, producer_task: str) -> None:
+        schema = self.ARTIFACT_SCHEMAS.get(key)
+        if schema:
+            missing = [f for f in schema["required"] if f not in (value or {})]
+            if missing:
+                from bdp.agents.errors import FatalError
+
+                raise FatalError(
+                    f"artifact '{key}' 缺少必备字段 {missing}（生产者 {producer_task} "
+                    f"与 schema 契约脱节；显式失败优于下游静默拿到 None）"
+                )
         with session_context() as s:
             existing = s.execute(
                 select(AgentArtifact).where(

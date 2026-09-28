@@ -130,7 +130,10 @@ def _taskdefs_for(name: str, params: BaseModel) -> list[TaskDef]:
         ]
     if name == "caliber_diff":
         p: CaliberDiffParams = params  # type: ignore[assignment]
-        return [TaskDef(name="quality", agent="quality")]
+        # 口径对账是只读分析——派 Verifier（其 _check_caliber 即对账能力），
+        # 指标代码经 params 透传（VerifierInput.kind=verify 时读取 param_metrics）
+        return [TaskDef(name="verify", agent="verifier", write_domains=(),
+                        params={"kind": "verify", "metric_code": p.metric_code})]
     raise FatalError(f"未知模板：{name}")
 
 

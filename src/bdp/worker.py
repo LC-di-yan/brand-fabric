@@ -78,6 +78,32 @@ def claim_leased_tasks(store: StateStore, worker_id: str, limit: int = 2) -> lis
     return [store.get_task(tid) for tid in claimed]
 
 
+def reconstruct_fanout_taskdef(dag, task):
+    """fan-out 子任务的 TaskDef 重建（worker 进程的 runtime_taskdefs 是空的）。
+
+    fan-out 展生子任务不存在于静态 DAG——它们的 TaskDef 只活在派发进程内存里。
+    worker 进程必须从任务行本身 + 父任务定义重建，否则子任务在 _taskdef_for 处
+    FatalError（artifact_keys 丢失会导致物化子任务拿不到 metrics 窗口）。
+    """
+    if not (task.group or task.parent_task):
+        return None
+    try:
+        parent_td = dag.task(task.parent_task or task.group)
+    except Exception:
+        parent_td = None
+    from bdp.agents.dag import TaskDef
+
+    return TaskDef(
+        name=task.name,
+        agent=task.agent,
+        deps=list(task.deps or []),
+        params=dict(task.params or {}),
+        artifact_keys=list(parent_td.artifact_keys) if parent_td else [],
+        write_domains=tuple(task.write_domains or ()),
+        lock_keys=list(task.lock_keys or []),
+    )
+
+
 def _deps_satisfied(task, siblings) -> bool:
     by_name = {t.name: t for t in siblings}
     for dep in task.deps or []:
@@ -173,6 +199,13 @@ class Worker:
             self.store.finish_task(task.task_id, "skipped", {},
                                    f"任务所属 DAG 未知：{task.run_id}", retryable=False)
             return
+        # fan-out 子任务：重建 TaskDef 并登记（本进程的 runtime_taskdefs 为空）
+        try:
+            dag.task(task.name)
+        except Exception:
+            td = reconstruct_fanout_taskdef(dag, task)
+            if td is not None:
+                self.orchestrator._runtime_taskdefs[(task.run_id, task.name)] = td
         renewal = threading.Thread(target=self._renew_loop, args=(task.task_id,), daemon=True)
         with self.orchestrator._meta:
             self.orchestrator._cancel_flags.setdefault(task.task_id, threading.Event())
