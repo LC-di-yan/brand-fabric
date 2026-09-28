@@ -22,13 +22,26 @@ from datetime import date, datetime, timedelta
 from bdp.agents import registry
 from bdp.agents.base import guarded_session
 from bdp.agents.dag import Dag, TaskDef
-from bdp.agents.errors import FatalError, RetryableError, TaskCancelled
+from bdp.agents.errors import FatalError, GateHoldRequested, RetryableError, TaskCancelled
 from bdp.agents.spec import AgentContext, AgentResult, TenantScope
 from bdp.agents.state import TERMINAL_STATUSES, StateStore
 from bdp.config import settings
 
 _SUCCESSISH = ("succeeded", "degraded")
 _FAILUREISH = ("failed", "skipped", "cancelled")
+
+
+def _observe_task(agent: str, status: str, *, started, retried: bool) -> None:
+    """任务终态观测进 Prometheus registry（失败静默：监控不能拖垮编排）。"""
+    try:
+        from datetime import datetime as _dt
+
+        from bdp.api.middleware import metrics_registry
+
+        duration = (_dt.now() - started).total_seconds() if started else 0.0
+        metrics_registry.observe_agent_task(agent, status, duration, retried=retried)
+    except Exception:
+        pass
 
 
 class Orchestrator:
@@ -211,6 +224,15 @@ class Orchestrator:
         started = time.monotonic()
         try:
             result = agent.run(ctx)
+        except GateHoldRequested as exc:
+            # 审批闸口（P2）：任务停在 waiting_approval，人工 approve/reject 决定走向。
+            # 不计失败不重试；审批通过后任务回 pending 重新执行（gate 重新评估）。
+            self.store.hold_task(task.task_id, str(exc))
+            self.store.append_event(
+                run_id, task.task_id, "warn",
+                f"门禁 hold：{exc}。等待审批（POST /v1/agent/tasks/{task.task_id}/approve|reject）",
+            )
+            return
         except (TaskCancelled, RetryableError) as exc:
             self._handle_failure(dag, run_id, task, exc, True, started)
             return
@@ -235,6 +257,7 @@ class Orchestrator:
             {"status": status, "artifacts": result.artifacts, "stats": result.stats,
              "warning": result.warning},
         )
+        _observe_task(task.agent, status, started=task.started_at, retried=task.attempt > 1)
         if result.warning:
             self.store.append_event(run_id, task.task_id, "warn", result.warning)
         self.store.append_event(
@@ -251,6 +274,7 @@ class Orchestrator:
             with self._meta:
                 self._ready_at[task.task_id] = time.time() + delay
             self.store.requeue_task(task.task_id, f"第 {attempt} 次失败（可重试）：{exc}")
+            _observe_task(task.agent, "retrying", started=None, retried=True)
             self.store.append_event(
                 run_id, task.task_id, "warn",
                 f"失败待重试（attempt {attempt}/{task.max_attempts}，退避 {delay}s）：{exc}",
@@ -260,6 +284,7 @@ class Orchestrator:
         self.store.finish_task(
             task.task_id, "failed", {}, f"{type(exc).__name__}: {exc}", retryable=retryable
         )
+        _observe_task(task.agent, "failed", started=None, retried=attempt > 1)
         self.store.append_event(
             run_id, task.task_id, "error",
             f"任务失败（重试{'已' if exhausted else '不'}适用）：{exc}",
@@ -415,6 +440,14 @@ class Orchestrator:
                 )
                 self.store.append_event(task.run_id, task.task_id, "error", "任务超时判死")
 
+        # 审批 TTL：waiting_approval 超时的任务自动 skip（不占超时预算——它没在执行）
+        if settings.agent_dq_gate_action == "hold":
+            ttl = timedelta(hours=settings.agent_approval_ttl_hours)
+            expired = self.store.expire_approvals(now - ttl)
+            for task_id in expired:
+                self.store.append_event("", task_id, "warn",
+                                        f"审批超过 TTL（{settings.agent_approval_ttl_hours}h），自动跳过")
+
     # ------------------------------------------------------------------ 杂项
 
     def _enqueue(self, dag: Dag, td: TaskDef, run_id: str, params: dict) -> str:
@@ -518,6 +551,15 @@ class Orchestrator:
         self.store.finish_run(run_id, status, stats)
         self.store.append_event(run_id, "", "info" if status == "succeeded" else "warn",
                                 f"运行结束：{status}")
+        # 记忆沉淀（P3）：失败/降级 run 摘要入库，供后续同类目标冷启动参考
+        try:
+            from bdp.agents.memory import summarize_run
+
+            run = self.store.get_run(run_id)
+            summarize_run(run_id, dag.dag_id, status, stats,
+                          goal=(run.goal if run else ""), tenant_id=None)
+        except Exception:
+            pass  # 记忆是增强不是依赖
         # 事件按保留期清理（每次运行顺带执行）
         self.store.prune_events(datetime.now() - timedelta(days=settings.agent_event_retention_days))
 

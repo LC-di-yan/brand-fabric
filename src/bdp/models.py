@@ -466,19 +466,22 @@ class AuditLog(Base):
 
 
 class AgentRun(Base):
-    """一次 DAG 运行（nightly 全链路 / 单 agent 按需任务）。"""
+    """一次 DAG 运行（nightly 全链路 / 单 agent 按需任务 / goal 编排）。"""
 
     __tablename__ = "agent_run"
 
     run_id: Mapped[str] = mapped_column(String(48), primary_key=True)
     dag_id: Mapped[str] = mapped_column(String(48), nullable=False)
-    trigger: Mapped[str] = mapped_column(String(32), default="cli", nullable=False)  # cli|api|system
+    trigger: Mapped[str] = mapped_column(String(32), default="cli", nullable=False)  # cli|api|system|goal
     status: Mapped[str] = mapped_column(String(16), default="running", nullable=False)
     # running | succeeded | partial_success | failed
     params: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     stats: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # goal 编排溯源（P1：planner 产物；普通 DAG 运行为空）
+    goal: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    plan: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
 
 class AgentTask(Base):
@@ -502,7 +505,7 @@ class AgentTask(Base):
     input: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     tenant_scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
-    # pending|running|succeeded|degraded|failed|skipped|cancelled
+    # pending|running|waiting_approval|succeeded|degraded|failed|skipped|cancelled
     attempt: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_attempts: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     timeout_sec: Mapped[int] = mapped_column(Integer, default=900, nullable=False)
@@ -514,6 +517,11 @@ class AgentTask(Base):
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # ---- worker 租约（P0：执行体与 API 进程分离；inline 模式两列为空）----
+    worker_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # ---- 审批闸口（P2：gate 动作 hold 时任务停在此状态等人工决定）----
+    approved_by: Mapped[str] = mapped_column(String(32), default="", nullable=False)
 
 
 class AgentArtifact(Base):
@@ -532,7 +540,6 @@ class AgentArtifact(Base):
 
 class AgentEvent(Base):
     """进度事件流：任务心跳、阶段完成、告警，供 API 与看板观察运行。"""
-
     __tablename__ = "agent_event"
     __table_args__ = (Index("ix_agent_event_run", "run_id", "ts"),)
 
@@ -543,6 +550,30 @@ class AgentEvent(Base):
     level: Mapped[str] = mapped_column(String(8), default="info", nullable=False)  # info|warn|error
     message: Mapped[str] = mapped_column(String(240), default="", nullable=False)
     data: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+
+class AgentMemory(Base):
+    """跨 run 记忆（P3 episodic 层）：run 摘要 / agent 经验，供后续运行冷启动参考。
+
+    scope: run_summary（run 结束时的聚合）| agent_note（agent 显式沉淀的经验）
+    写入受写域守卫约束：默认 agent 无 memory 写权，spec 显式声明才有。
+    """
+
+    __tablename__ = "agent_memory"
+    __table_args__ = (
+        UniqueConstraint("scope", "scope_id", "key", name="uq_agent_memory"),
+        Index("ix_agent_memory_scope", "scope", "scope_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scope: Mapped[str] = mapped_column(String(24), nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(64), nullable=False)  # run_id / agent:tenant
+    key: Mapped[str] = mapped_column(String(64), nullable=False)
+    value: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    tenant_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    produced_by: Mapped[str] = mapped_column(String(48), default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # None = 永久
 
 
 class InsightLog(Base):

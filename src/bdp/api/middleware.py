@@ -41,6 +41,27 @@ class MetricsRegistry:
         self.duration_buckets: dict[tuple[str, str], list[int]] = {}
         self.duration_sum: dict[tuple[str, str], float] = defaultdict(float)
         self.duration_count: dict[tuple[str, str], int] = defaultdict(int)
+        # ---- agent 任务指标（P0 可观测：任务终态计数 + 执行耗时 + 重试）----
+        self.agent_task_total: dict[tuple[str, str], int] = defaultdict(int)
+        self.agent_duration_sum: dict[str, float] = defaultdict(float)
+        self.agent_duration_count: dict[str, int] = defaultdict(int)
+        self.agent_retries_total: dict[str, int] = defaultdict(int)
+        self.agent_runs_active = 0
+
+    # -- agent 指标（由 orchestrator/worker 在任务终态时调用）----------------
+
+    def observe_agent_task(self, agent: str, status: str, duration_sec: float,
+                           *, retried: bool = False) -> None:
+        with self._mu:
+            self.agent_task_total[(agent, status)] += 1
+            self.agent_duration_sum[agent] += duration_sec
+            self.agent_duration_count[agent] += 1
+            if retried:
+                self.agent_retries_total[agent] += 1
+
+    def set_active_runs(self, n: int) -> None:
+        with self._mu:
+            self.agent_runs_active = max(n, 0)
 
     def observe(self, method: str, route: str, status: int, duration_seconds: float) -> None:
         with self._mu:
@@ -83,6 +104,29 @@ class MetricsRegistry:
                 lines.append(
                     f'bdp_http_request_duration_seconds_count{{method="{method}",route="{route}"}} {self.duration_count[(method, route)]}'
                 )
+
+            # ---- agent 任务指标 ----
+            lines.append("# HELP bdp_agent_task_total Agent 任务终态计数")
+            lines.append("# TYPE bdp_agent_task_total counter")
+            for (agent, status), count in sorted(self.agent_task_total.items()):
+                lines.append(f'bdp_agent_task_total{{agent="{agent}",status="{status}"}} {count}')
+
+            lines.append("# HELP bdp_agent_task_duration_seconds Agent 任务累计执行耗时")
+            lines.append("# TYPE bdp_agent_task_duration_seconds counter")
+            for agent, total in sorted(self.agent_duration_sum.items()):
+                count = self.agent_duration_count.get(agent, 0)
+                lines.append(f'bdp_agent_task_duration_seconds_sum{{agent="{agent}"}} {total:.6f}')
+                lines.append(f'bdp_agent_task_duration_seconds_count{{agent="{agent}"}} {count}')
+
+            lines.append("# HELP bdp_agent_task_retries_total Agent 任务重试计数")
+            lines.append("# TYPE bdp_agent_task_retries_total counter")
+            for agent, count in sorted(self.agent_retries_total.items()):
+                lines.append(f'bdp_agent_task_retries_total{{agent="{agent}"}} {count}')
+
+            lines.append("# HELP bdp_agent_runs_active 当前 running 状态的运行数")
+            lines.append("# TYPE bdp_agent_runs_active gauge")
+            lines.append(f"bdp_agent_runs_active {self.agent_runs_active}")
+
             lines.append("")
             return "\n".join(lines)
 

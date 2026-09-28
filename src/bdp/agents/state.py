@@ -174,6 +174,71 @@ class StateStore:
             )
             return task
 
+    # ---- 审批闸口（P2）：hold 动作把任务停在 waiting_approval 等人工决定 ----
+
+    def hold_task(self, task_id: str, reason: str) -> bool:
+        """置 waiting_approval；heartbeat_at 记录 hold 时刻（TTL 回收的判断基准）。"""
+        with session_context() as s:
+            res = s.execute(
+                update(AgentTask)
+                .where(AgentTask.task_id == task_id, AgentTask.status == "running")
+                .values(status="waiting_approval", error=reason[:480],
+                        heartbeat_at=datetime.now())
+            )
+            return res.rowcount == 1
+
+    def approve_task(self, task_id: str, approved_by: str) -> AgentTask | None:
+        """审批通过：回 pending 继续编排（attempt 不变——审批不是重试）。"""
+        with session_context() as s:
+            task = s.get(AgentTask, task_id)
+            if task is None or task.status != "waiting_approval":
+                return None
+            s.execute(
+                update(AgentTask)
+                .where(AgentTask.task_id == task_id)
+                .values(status="pending", error="", approved_by=approved_by)
+            )
+            return task
+
+    def reject_task(self, task_id: str, rejected_by: str) -> AgentTask | None:
+        """审批拒绝：任务 skipped（带拒绝人），下游由短路逻辑自然跳过。"""
+        with session_context() as s:
+            task = s.get(AgentTask, task_id)
+            if task is None or task.status != "waiting_approval":
+                return None
+            s.execute(
+                update(AgentTask)
+                .where(AgentTask.task_id == task_id)
+                .values(status="skipped", error=f"审批拒绝（by {rejected_by}）"[:480],
+                        finished_at=datetime.now())
+            )
+            return task
+
+    def expire_approvals(self, before: datetime) -> list[str]:
+        """TTL 回收：waiting_approval 超过 hold 时刻 TTL 的任务自动 skipped。
+
+        hold 时刻记录在 heartbeat_at（hold_task 写入）；审批通过后走 pending
+        不会进入本方法的作用域（状态已变）。
+        """
+        with session_context() as s:
+            rows = s.execute(
+                select(AgentTask).where(
+                    AgentTask.status == "waiting_approval",
+                    AgentTask.heartbeat_at.is_not(None),
+                    AgentTask.heartbeat_at < before,
+                )
+            ).scalars().all()
+            ids = [t.task_id for t in rows]
+            if ids:
+                s.execute(
+                    update(AgentTask)
+                    .where(AgentTask.task_id.in_(ids))
+                    .values(status="skipped",
+                            error="审批超时（超过 TTL）自动跳过"[:480],
+                            finished_at=datetime.now())
+                )
+            return ids
+
     def reap_stale_tasks(self, stale_before: datetime) -> list[str]:
         """崩溃恢复：心跳超时的 running 任务判死并回到可重试队列。"""
         with session_context() as s:

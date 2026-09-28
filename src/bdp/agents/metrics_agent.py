@@ -12,7 +12,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from bdp.agents import registry
-from bdp.agents.errors import FatalError
+from bdp.agents.errors import FatalError, GateHoldRequested
 from bdp.agents.spec import AgentContext, AgentResult, AgentSpec
 
 
@@ -68,6 +68,13 @@ class MetricsAgent:
                     status="skipped",
                     stats={"gate": "blocked", "action": "skip"},
                     warning=f"质量门禁阻断（pass_rate={pass_rate} < {gate}），跳过指标物化",
+                )
+            if blocked and settings.agent_dq_gate_action == "hold":
+                # 审批闸口：物化暂停，等人工决定（approve → 重跑；reject → 短路）
+                # agent 无权自己把任务置 waiting_approval——抛出专用异常，
+                # 由编排器/worker 在任务层落状态（与取消信号同一协作模式）。
+                raise GateHoldRequested(
+                    f"质量门禁阻断（pass_rate={pass_rate} < {gate}），物化等待审批"
                 )
 
             # 门禁通过（或 degraded 继续策略）后才清理旧物化结果

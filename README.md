@@ -39,7 +39,10 @@
   可用；100 条复合/含糊靶场实测 Recall@K 0.90 vs 直通 0.88，P95 13ms。
 - **多 Agent 批处理编排**：nightly 全链路 = 8 个任务（接入 → dwd 三路并行 → 汇总
   → 质量门禁 ‖ 知识库重建 → 指标按租户 fan-out）；DB 任务表作消息总线，带写域守卫、
-  指数退避重试、协作式超时、心跳崩溃恢复。
+  指数退避重试、协作式超时、心跳崩溃恢复；可选独立 worker 进程（租约认领，API 重启不中断
+  编排）、目标编排（`POST /v1/agent/goals`：自然语言 → 模板白名单 DAG，dry_run 可预览）、
+  只读结论复核（Verifier：行数水位/口径一致性/负值扫描）、人工审批闸口（门禁 hold →
+  approve/reject → TTL 自动跳过）、跨 run 记忆（失败/降级 run 摘要自动沉淀）。
 - **数据质量门禁**：声明式规则（SQL 谓词）产出通过率，低于阈值时指标物化被阻断或带降级标记。
 - **数据血缘**：表级（raw→dwd→dws→ads→服务）与指标级（来源表→基础指标→派生指标）
   两张血缘图，sankey 可视化，点击节点看上下游；声明与 models/DAG/指标字典的一致性由测试强制。
@@ -204,8 +207,8 @@ brand-fabric/
 ## 设计文档
 
 - [docs/AGENT_REFACTOR_PLAN.md](docs/AGENT_REFACTOR_PLAN.md) — 多 Agent 协作系统重构设计（V3，已落地）
-- [docs/AGENTIC_RAG_PLAN.md](docs/AGENTIC_RAG_PLAN.md) — Agentic RAG 检索管线演进方案（规划中）
-- [docs/MULTI_AGENT_EVOLUTION_PLAN.md](docs/MULTI_AGENT_EVOLUTION_PLAN.md) — 多 Agent 协作系统演进方案（规划中）
+- [docs/AGENTIC_RAG_PLAN.md](docs/AGENTIC_RAG_PLAN.md) — Agentic RAG 检索管线演进方案（已落地）
+- [docs/MULTI_AGENT_EVOLUTION_PLAN.md](docs/MULTI_AGENT_EVOLUTION_PLAN.md) — 多 Agent 协作系统演进方案（P0-P3 已落地）
 - [docs/LOGIN_SECURITY.md](docs/LOGIN_SECURITY.md) — 登录安全设计
 
 ## 九、已知限制

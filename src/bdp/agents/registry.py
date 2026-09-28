@@ -42,4 +42,5 @@ def ensure_loaded() -> None:
         metrics_agent,
         pipeline_agent,
         quality_agent,
+        verifier_agent,
     )

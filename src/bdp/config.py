@@ -59,11 +59,23 @@ class Settings(BaseSettings):
 
     # Agent 运行时
     agent_workers: int = 4  # 有效并发会被钳制：SQLite 单写者模式下强制 1
+    # inline：编排与执行都在当前进程（SQLite 唯一合法形态，V3 行为）
+    # process：API/CLI 只入队，python -m bdp.worker 独立执行（PostgreSQL 下可用）
+    agent_worker_mode: str = "inline"
+    agent_lease_sec: int = 60          # worker 租约时长（认领后定期续租）
+    agent_max_concurrent_runs: int = 0  # 背压：running 状态 run 数上限（0 = 不限；生产建议 3）
     agent_dq_gate: float = 0.99  # 质量门禁：overall_pass_rate 低于该值视为 block
-    agent_dq_gate_action: str = "degraded"  # block 时的动作：skip | degraded
+    agent_dq_gate_action: str = "degraded"  # block 时的动作：skip | degraded | hold（待审批）
+    agent_approval_ttl_hours: int = 24  # waiting_approval 超时自动 skip
     agent_heartbeat_sec: int = 30  # 心跳间隔（任务阶段边界更新）
     agent_event_retention_days: int = 14
     agent_default_timeout_sec: int = 900
+
+    # Planner（P1：目标 → 模板白名单 DAG；off 关闭 goal API）
+    agent_planner: str = "rules"  # off | rules（LLM 模板规划为可选增强，接口一致）
+    # Verifier（P2：nightly 追加只读复核任务）
+    agent_verifier: bool = False
+    agent_memory_ttl_days: int = 30  # 记忆 TTL（0 = 永久）
 
     # LLM（InsightAgent 用，none 表示关闭并走降级路径）
     llm_backend: str = "none"  # none | openai

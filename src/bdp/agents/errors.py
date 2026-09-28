@@ -39,3 +39,13 @@ class WriteDomainViolation(AgentError):
     """越域写：agent 尝试写声明写域之外的表，运行时强制拦截。"""
 
     retryable = False
+
+
+class GateHoldRequested(AgentError):
+    """质量门禁请求人工审批（BDP_AGENT_DQ_GATE_ACTION=hold）。
+
+    agent 不直接改任务状态（写域守卫原则），只抛出请求；
+    orchestrator/worker 捕获后把任务置 waiting_approval，审批 API 决定继续或短路。
+    """
+
+    retryable = False

@@ -1,7 +1,17 @@
 # 多 Agent 协作系统演进方案（brand-fabric）
 
-> 基于 2026-09-28 对 `agents/` 全模块（spec/base/state/dag/orchestrator/registry + 6 个 agent）
-> 与 `api/routers/agents.py` 的逐文件阅读。V3 重构方案（`AGENT_REFACTOR_PLAN.md`）已全部落地，
+> **状态：P0-P2 已落地，P3 记忆层已落地（2026-09-28）。**
+> - P0：`worker.py` 租约执行体（SQLite 拒绝 process 模式）+ 背压（默认不限，生产建议 3）
+>   + agent 指标进 Prometheus（任务终态/耗时/重试）
+> - P1：`agents/planner.py` 模板白名单（5 模板，参数 pydantic 硬校验，写域模板内固化）
+>   + `POST /v1/agent/goals`（dry_run 预览）+ 规则降级
+> - P2：`agents/verifier_agent.py`（只读复核：行数水位/口径一致性/负值扫描，
+>   空写域=写库即拦截）+ 门禁 hold 动作（`GateHoldRequested` → waiting_approval
+>   → approve/reject API → TTL 自动跳过）
+> - P3：`agent_memory` 表 + `agents/memory.py`（run 摘要自动沉淀——全绿 run 不记，
+>   TTL 默认 30 天；agent 显式沉淀是预留能力）。artifact schema 信封为后续项。
+
+> 以下为方案原文。V3 重构方案（`AGENT_REFACTOR_PLAN.md`）已全部落地，
 > 本方案回答下一个问题：**V3 解决了"批量任务怎么可靠地跑"，这里解决"智能任务怎么协同地想"。**
 > 所有新组件为纯 Python + SQLAlchemy 实现，零强制新增依赖；SQLite inline 模式行为保持不变。
 
