@@ -197,6 +197,13 @@ brand-fabric/
 | 5 | 向量库双后端（Milvus + 本地索引） | 只保留 Milvus Cluster |
 | 6 | 血缘采用"声明式编译 + 测试校验"而非埋点上报 | 链路跨越多个系统时引入 DataHub/OpenMetadata |
 
+## 设计文档
+
+- [docs/AGENT_REFACTOR_PLAN.md](docs/AGENT_REFACTOR_PLAN.md) — 多 Agent 协作系统重构设计（V3，已落地）
+- [docs/AGENTIC_RAG_PLAN.md](docs/AGENTIC_RAG_PLAN.md) — Agentic RAG 检索管线演进方案（规划中）
+- [docs/MULTI_AGENT_EVOLUTION_PLAN.md](docs/MULTI_AGENT_EVOLUTION_PLAN.md) — 多 Agent 协作系统演进方案（规划中）
+- [docs/LOGIN_SECURITY.md](docs/LOGIN_SECURITY.md) — 登录安全设计
+
 ## 九、已知限制
 
 诚实记录，避免高估：
