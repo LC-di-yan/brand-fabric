@@ -20,7 +20,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt ruff
+        run: pip install -r requirements.txt "ruff==0.15.13"
 
       - name: Lint (ruff)
         run: ruff check src tests migrations
