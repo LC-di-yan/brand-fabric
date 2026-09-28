@@ -62,7 +62,7 @@ def test_login_lockout_and_recovery_hint(client):
         body_req: dict = {"username": username, "password": "wrong-pass-000"}
         if i >= 3:  # 阈值之后必须带验证码，否则返回 400 而非 401
             cap = client.get("/v1/auth/captcha").json()
-            answer = cap_mod._unsign(cap["captcha_id"]).split("|")[0]
+            answer = cap_mod._unsign(cap["captcha_id"]).split("|")[-2]
             body_req.update(captcha_id=cap["captcha_id"], captcha_code=answer)
         res = client.post("/v1/auth/token", json=body_req)
         assert res.status_code == 401
@@ -129,7 +129,7 @@ def test_login_captcha_required_after_threshold(client):
     assert wrong_cap.status_code == 400
 
     from bdp.security import captcha as cap_mod
-    answer = cap_mod._unsign(cap["captcha_id"]).split("|")[0]
+    answer = cap_mod._unsign(cap["captcha_id"]).split("|")[-2]
     ok = client.post("/v1/auth/token", json={
         "username": username, "password": "lumen123",
         "captcha_id": cap["captcha_id"], "captcha_code": answer,
@@ -144,7 +144,7 @@ def test_captcha_single_use(client):
 
     cap_id, svg = cap_mod.generate()
     assert svg.startswith("<svg")
-    answer = cap_mod._unsign(cap_id).split("|")[0]
+    answer = cap_mod._unsign(cap_id).split("|")[-2]
     cap_mod.verify(cap_id, answer)  # 第一次通过
     with pytest.raises(cap_mod.CaptchaError):
         cap_mod.verify(cap_id, answer)  # 重放被拒
