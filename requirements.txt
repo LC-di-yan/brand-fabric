@@ -1,0 +1,25 @@
+# 核心运行时
+sqlalchemy>=2.0.30
+psycopg[binary]>=3.1.18
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+python-dotenv>=1.0.1
+PyJWT>=2.8.0
+
+# 数据库迁移（baseline 之后 schema 变更走 alembic revision，禁止再动 init --drop）
+alembic>=1.13.0
+
+# API
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# 向量检索
+pymilvus>=2.5.0
+numpy>=1.26.0
+
+# 主数据模糊匹配
+rapidfuzz>=3.9.0
+
+# 测试
+pytest>=8.2.0
+httpx>=0.27.0

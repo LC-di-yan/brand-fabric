@@ -1,0 +1,14 @@
+# Prometheus 抓取配置：只抓 BDP API 的 /metrics 端点。
+# 演示部署单实例，用最简单的静态配置；多实例时改为服务发现。
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: bdp-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+        labels:
+          service: bdp-api
+          env: demo

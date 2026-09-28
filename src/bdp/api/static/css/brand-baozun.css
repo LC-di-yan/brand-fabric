@@ -1,0 +1,78 @@
+/* ============================================================
+   品牌覆盖层 · 宝尊电商（Baozun）
+   ============================================================
+   主色取自宝尊官网生产样式表（#1890ff，Ant Design daybreak blue 系），
+   出处与依据见 docs/BAOZUN_BRAND_RESEARCH.md。
+
+   架构说明：tokens.css 是白标底座，本文件是单品牌覆盖层——
+   加载顺序在 tokens 之后，仅覆盖品牌差异项（色阶/图表/侧栏），
+   交付其他客户时替换本文件即可换肤，这是代运营行业"一套中台、
+   多客户交付"的标准做法。
+   ============================================================ */
+
+:root {
+  --accent-50: #e6f7ff;
+  --accent-100: #bae7ff;
+  --accent-300: #69c0ff;
+  --accent-500: #1890ff;
+  --accent-600: #096dd9;
+  --accent-700: #0050b3;
+
+  /* 图表系列色随品牌主色调整 */
+  --chart-1: #1890ff;
+  --chart-2: #69c0ff;
+  --chart-3: #faad14;
+  --chart-4: #36c1a4;
+  --chart-5: #8d7fc4;
+
+  /* 侧栏：深宝尊蓝（由 accent-700 压暗） */
+  --sidebar-bg: #06294e;
+  --sidebar-text: #9fc4e8;
+  --sidebar-text-strong: #eaf5ff;
+}
+
+[data-theme="dark"] {
+  /* 暗色下提亮主蓝，保持对比度 */
+  --accent-50: rgba(64, 169, 255, 0.14);
+  --accent-100: rgba(64, 169, 255, 0.24);
+  --accent-300: #69c0ff;
+  --accent-500: #40a9ff;
+  --accent-600: #69c0ff;
+  --accent-700: #8eccff;
+
+  --chart-1: #40a9ff;
+  --chart-2: #69c0ff;
+  --chart-3: #faad14;
+  --chart-4: #36c1a4;
+  --chart-5: #9d8fd0;
+
+  --sidebar-bg: #041c36;
+  --sidebar-text: #8fb8dd;
+  --sidebar-text-strong: #e6f3ff;
+}
+
+/* ---- 品牌标识（侧栏 / 登录页） ---- */
+.logo b, .login-brand h1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: #1890ff;
+  color: #fff;
+  font-weight: var(--fw-semibold);
+  font-size: 13px;
+  line-height: 1;
+  flex: none;
+  letter-spacing: 0;
+}
+
+.login-brand .brand-mark { width: 34px; height: 34px; border-radius: 9px; font-size: 19px; }
+[data-theme="dark"] .brand-mark { background: #40a9ff; color: #041c36; }

@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt ruff
+
+      - name: Lint (ruff)
+        run: ruff check src tests migrations
+
+      - name: Run tests
+        env:
+          BDP_MODE: lite
+          BDP_JWT_SECRET: ci-secret-not-for-production-0123456789abcdef
+        run: python -m pytest -q
+
+      - name: Verify alembic baseline on fresh database
+        env:
+          BDP_DATABASE_URL: "sqlite:////tmp/ci-fresh.db"
+          BDP_JWT_SECRET: ci-secret-not-for-production-0123456789abcdef
+        run: |
+          python -m alembic upgrade head
+          python - <<'PY'
+          import sqlite3
+          db = sqlite3.connect("/tmp/ci-fresh.db")
+          tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+          assert "alembic_version" in tables, "alembic_version 表缺失"
+          assert len(tables) >= 27, f"基线表数量异常：{len(tables)}"
+          print(f"baseline OK: {len(tables)} tables")
+          PY

@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="宝尊品牌数据中台 · 全球品牌数字商业伙伴的经营看板与多 Agent 编排（演示项目，全部为模拟数据）" />
+<title>宝尊 · 品牌数据中台</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<link rel="stylesheet" href="css/tokens.css" />
+<link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/components.css" />
+<link rel="stylesheet" href="css/views.css" />
+<link rel="stylesheet" href="css/brand-baozun.css" />
+<script src="vendor/echarts.min.js"
+        onerror="document.write('<script src=&quot;https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js&quot;><\/script>')"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">跳到正文</a>
+<div class="layout">
+  <aside>
+    <div class="logo">
+      <b><img src="brand/logo-mark.svg" alt="" width="24" height="24" style="border-radius:6px" />宝尊 · 品牌数据中台</b>
+      <span>BAOZUN DATA PLATFORM</span>
+    </div>
+    <nav aria-label="视图导航">
+      <div class="item" data-view="overview"><span class="dot"></span>经营概览</div>
+      <div class="item" data-view="metrics"><span class="dot"></span>指标查询</div>
+      <div class="item" data-view="catalog"><span class="dot"></span>商品主数据</div>
+      <div class="item" data-view="knowledge"><span class="dot"></span>知识检索</div>
+      <div class="item" data-view="quality"><span class="dot"></span>质量与审计</div>
+      <div class="item" data-view="lineage"><span class="dot"></span>数据血缘</div>
+      <div class="item" data-view="agents"><span class="dot"></span>Agent 编排</div>
+      <div class="item" data-view="ask"><span class="dot"></span>智能问答</div>
+    </nav>
+    <div class="side-foot">
+      宝尊电商 · 演示项目<br/>科技成就商业未来 ｜ 全部为模拟数据
+    </div>
+  </aside>
+
+  <main id="main">
+    <div class="topbar">
+      <h1 id="viewTitle">经营概览</h1>
+      <span class="crumb" id="scopeCrumb">—</span>
+      <span class="spacer"></span>
+      <div class="ctrl" id="tenantCtrl">
+        <label for="tenantSel">租户</label>
+        <select id="tenantSel" class="input"></select>
+      </div>
+      <div class="ctrl">
+        <label for="rangeSel">时间</label>
+        <select id="rangeSel" class="input">
+          <option value="7">近 7 天</option>
+          <option value="30" selected>近 30 天</option>
+          <option value="60">近 60 天</option>
+          <option value="90">近 90 天</option>
+        </select>
+      </div>
+      <button class="btn sm" id="themeBtn" aria-label="切换主题">☾</button>
+      <div class="ctrl">
+        <span class="avatar" id="avatar">?</span>
+        <span id="whoami" class="muted">—</span>
+        <button class="btn sm" id="logoutBtn">退出</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- ===================== 经营概览 ===================== -->
+      <section class="view" data-view="overview" aria-label="经营概览">
+        <div class="grid g4" id="ovKpis"></div>
+        <div class="grid g23">
+          <div class="card"><h2>GMV 三口径趋势 <span class="tag">下单 / 支付 / 退款 按各自事件日</span></h2><div class="chart" id="ovTrend"></div></div>
+          <div class="card"><h2>平台结构 <span class="tag">支付 GMV 占比</span></h2><div class="chart" id="ovPlatform"></div></div>
+        </div>
+        <div class="grid g2">
+          <div class="card">
+            <h2>品牌对比 <span class="tag">同口径横向可比</span></h2>
+            <div class="table-wrap" style="max-height:320px"><table id="ovTenantTable">
+              <thead><tr><th>品牌</th><th>品类</th><th>支付GMV</th><th>结算GMV</th><th>退款率</th><th>订单数</th><th>客单价</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+          </div>
+          <div class="card"><h2>客服效率 <span class="tag">机器人承接 + 首响 + 满意度</span></h2><div class="chart sm" id="ovCs"></div></div>
+        </div>
+        <div class="card">
+          <h2>数据质量 <span class="tag" id="ovDqTag">—</span></h2>
+          <div class="table-wrap"><table id="ovDqTable">
+            <thead><tr><th>规则</th><th>表</th><th>检查行数</th><th>失败行数</th><th>通过率</th><th>说明</th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+        </div>
+      </section>
+
+      <!-- ===================== 指标查询 ===================== -->
+      <section class="view" data-view="metrics" aria-label="指标查询">
+        <div class="grid g23">
+          <div class="card">
+            <h2>指标查询 <span class="tag">口径版本 · 同比/环比 · 维度下钻 · 导出</span>
+              <span class="right"><button class="btn sm" id="mqExport">导出 CSV</button></span>
+            </h2>
+            <div class="form-grid">
+              <div class="field"><label for="mqMetric">指标</label><select id="mqMetric" class="input"></select></div>
+              <div class="field"><label for="mqVersion">口径版本</label><select id="mqVersion" class="input"><option value="">自动（按日期解析）</option></select></div>
+              <div class="field"><label for="mqDim">维度</label><select id="mqDim" class="input"><option value="tenant">租户</option><option value="shop">店铺</option><option value="platform">平台</option></select></div>
+              <div class="field"><label for="mqCompare">对比</label><select id="mqCompare" class="input"><option value="none">无</option><option value="mom">环比</option><option value="yoy">同比</option></select></div>
+            </div>
+            <div class="toolbar" style="margin-top:12px">
+              <button class="btn primary" id="mqRun">查询</button>
+              <span id="mqTotal" class="muted"></span>
+            </div>
+            <div class="note" id="mqNotice" style="display:none; margin-top:10px"></div>
+            <div id="mqResultBox">
+              <div class="chart" id="mqChart" style="margin-top:12px"></div>
+              <div class="table-wrap" style="margin-top:12px; max-height:300px"><table id="mqTable">
+                <thead><tr><th>日期</th><th>维度</th><th>数值</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
+            </div>
+          </div>
+          <div class="card">
+            <h2>指标字典 <span class="tag">点击载入</span></h2>
+            <div class="toolbar"><input type="search" id="mqFilter" class="input" style="flex:1" placeholder="按名称/代码过滤" /></div>
+            <div id="mqList" class="list" style="max-height:560px; overflow:auto"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== 商品主数据 ===================== -->
+      <section class="view" data-view="catalog" aria-label="商品主数据">
+        <div class="grid g2">
+          <div class="card">
+            <h2>商品主数据 <span class="tag" id="catTotal">—</span>
+              <span class="right"><button class="btn sm" id="catExport">导出 CSV</button></span>
+            </h2>
+            <div class="toolbar">
+              <input type="search" id="catSearch" class="input" style="flex:1" placeholder="按商品名搜索（回车确认）" />
+              <button class="btn sm" id="catReload">搜索</button>
+            </div>
+            <div class="table-wrap" style="max-height:420px"><table id="catTable">
+              <thead><tr><th>SKU</th><th>商品</th><th>条码</th><th>规格</th><th>吊牌价</th><th>平台映射</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+            <div class="pager">
+              <button class="btn sm" id="catPrev">上一页</button>
+              <span id="catPageInfo">—</span>
+              <button class="btn sm" id="catNext">下一页</button>
+            </div>
+          </div>
+          <div>
+            <div class="card">
+              <h2>跨平台映射覆盖率</h2>
+              <div id="catCoverage"></div>
+            </div>
+            <div class="card" style="margin-top:var(--sp-4)">
+              <h2>映射复核队列 <span class="tag">机器给候选 · 人来决定</span></h2>
+              <div id="catReview" class="list" style="max-height:520px; overflow:auto"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== 知识检索 ===================== -->
+      <section class="view" data-view="knowledge" aria-label="知识检索">
+        <div class="grid g23">
+          <div>
+            <div class="card">
+              <h2>知识检索 <span class="tag">双路召回 + RRF 融合 + 租户隔离</span></h2>
+              <div class="toolbar">
+                <input type="search" id="kbQuery" class="input" style="flex:1" value="退货政策是怎样的" placeholder="输入客服 / 商品 / 政策问题" />
+                <select id="kbType" class="input"><option value="">全部知识域</option><option value="cs_faq">客服 FAQ</option><option value="product">商品知识</option><option value="policy">平台政策</option><option value="sop">运营 SOP</option></select>
+                <select id="kbMode" class="input"><option value="hybrid">混合检索</option><option value="dense">仅稠密</option><option value="sparse">仅稀疏</option></select>
+                <button class="btn primary" id="kbSearchBtn">检索</button>
+              </div>
+              <div class="hint" id="kbMeta" style="margin:6px 0 10px"></div>
+              <div id="kbResults" class="list"></div>
+            </div>
+            <div class="card" style="margin-top:var(--sp-4)">
+              <h2>新增知识 <span class="tag">保存后立即可检索</span></h2>
+              <div class="form-grid">
+                <div class="field"><label for="kbTypeNew">知识域</label><select id="kbTypeNew" class="input"><option value="cs_faq">客服 FAQ</option><option value="product">商品知识</option><option value="policy">平台政策</option><option value="sop">运营 SOP</option></select></div>
+                <div class="field"><label for="kbNewTitle">标题</label><input id="kbNewTitle" class="input" placeholder="例如 退货补充规则" /></div>
+                <div class="field" style="grid-column:1/-1"><label for="kbNewContent">内容</label><textarea id="kbNewContent" class="input" placeholder="粘贴政策 / 话术 / 商品说明"></textarea></div>
+              </div>
+              <div class="toolbar" style="margin-top:10px"><button class="btn primary" id="kbCreate">保存</button><span id="kbCreateMsg" class="muted"></span></div>
+            </div>
+          </div>
+          <div class="card">
+            <h2>知识文档 <span class="tag" id="kbDocTotal">—</span>
+              <span class="right"><button class="btn sm" id="kbRebuild">重建索引</button></span>
+            </h2>
+            <div id="kbDocs" class="list" style="max-height:640px; overflow:auto"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== 质量与审计 ===================== -->
+      <section class="view" data-view="quality" aria-label="质量与审计">
+        <div class="grid g2">
+          <div class="card">
+            <h2>数据质量校验 <span class="tag" id="dqSummary">—</span></h2>
+            <div class="table-wrap" style="max-height:380px"><table id="dqTable">
+              <thead><tr><th>规则</th><th>表</th><th>检查行数</th><th>失败行数</th><th>通过率</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+            <div id="dqSamples" style="margin-top:12px"></div>
+          </div>
+          <div class="card">
+            <h2>审计日志 <span class="tag">租户越权证据链</span></h2>
+            <div class="toolbar">
+              <label class="ctrl"><input type="checkbox" id="auditDenied" /> 只看被拒绝</label>
+            </div>
+            <div class="table-wrap" style="max-height:560px"><table id="auditTable">
+              <thead><tr><th>时间</th><th>账号</th><th>动作</th><th>请求租户</th><th>结果</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== 数据血缘 ===================== -->
+      <section class="view" data-view="lineage" aria-label="数据血缘">
+        <div class="card">
+          <h2><span id="liTitle">表级血缘</span> <span class="tag" id="liTag">raw → dwd → dws → ads · 边标注加工任务</span>
+            <span class="right">
+              <select id="liMode" class="input" style="width:auto">
+                <option value="tables">表级</option>
+                <option value="metrics">指标级</option>
+                <option value="full">全链路</option>
+              </select>
+            </span>
+          </h2>
+          <div class="hint" style="margin:4px 0 8px" id="liMeta">—</div>
+          <div class="chart" id="liChart" style="height:520px"></div>
+          <div id="liDetail" style="margin-top:10px"></div>
+        </div>
+      </section>
+
+      <!-- ===================== Agent 编排 ===================== -->
+      <section class="view" data-view="agents" aria-label="Agent 编排">
+        <div class="card">
+          <h2>Agent 运行 <span class="tag">任务表即消息总线 · 写域守卫 · 重试与门禁</span>
+            <span class="right" id="agentOps" style="display:none">
+              <button class="btn primary" id="agentRunNightly">运行 nightly 全链路</button>
+            </span>
+          </h2>
+          <div class="note info" id="agentCapa" style="display:none"></div>
+          <div class="table-wrap" style="margin-top:10px"><table id="runTable">
+            <thead><tr><th>run_id</th><th>DAG</th><th>状态</th><th>触发</th><th>开始时间</th><th>任务摘要</th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+        </div>
+        <div class="card" id="runDetailCard" style="display:none">
+          <h2>运行明细 <span class="tag mono" id="runDetailId">—</span></h2>
+          <div class="table-wrap"><table id="taskTable">
+            <thead><tr><th>任务</th><th>Agent</th><th>状态</th><th>尝试</th><th>租户</th><th>耗时</th><th>备注</th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <div id="runArtifacts" style="margin-top:10px"></div>
+          <div id="taskRetryBox" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap"></div>
+          <h2 style="margin-top:14px; font-size:var(--fs-sm)">事件流</h2>
+          <div id="eventList" style="max-height:260px; overflow:auto; margin-top:8px"></div>
+        </div>
+      </section>
+
+      <!-- ===================== 智能问答 ===================== -->
+      <section class="view" data-view="ask" aria-label="智能问答">
+        <div class="grid g23">
+          <div class="card">
+            <h2>业务问答 <span class="tag">InsightAgent · 数字全部来自工具 · 引用口径与知识来源</span></h2>
+            <div class="chat-thread" id="askThread" aria-live="polite"></div>
+            <div class="ask-input-row" style="margin-top:14px">
+              <input type="text" id="askInput" class="input" style="flex:1"
+                     placeholder="例如：退款率最近怎么样？退货流程是什么？" />
+              <button class="btn primary" id="askBtn">提问</button>
+            </div>
+            <div id="askExamples" style="margin-top:10px"></div>
+          </div>
+          <div class="card">
+            <h2>问答须知</h2>
+            <div class="note">
+              回答中的所有数值都来自指标工具（带口径版本号），知识引用来自当前品牌知识库；
+              平台级账号需先在右上角指定租户。LLM 未配置时自动降级为「指标卡片 + 检索片段」。
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

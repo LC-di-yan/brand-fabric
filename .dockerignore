@@ -1,0 +1,20 @@
+# 构建上下文瘦身：镜像里只需要运行时代码
+.git
+.github
+.pytest_cache
+.ruff_cache
+.venv
+venv
+.idea
+.vscode
+data/
+out/
+docs/
+tests/
+scripts/
+volumes/
+*.db
+*.db-shm
+*.db-wal
+.env
+INTERVIEW.md

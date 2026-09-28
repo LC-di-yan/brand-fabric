@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="64" viewBox="0 0 260 64">
+  <!-- 宝尊品牌数据中台 · 标识锁定（图形 + 文字）
+       图形：圆角方标内三根上升数据柱 + 折线箭头 + 琥珀色端点，
+       寓意"数据驱动增长"；配色取宝尊官网主色系。
+       替换方式：改 --bz-* 色值或整体替换本文件即可，页面引用路径不变。 -->
+  <defs>
+    <linearGradient id="bz-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1890ff"/>
+      <stop offset="1" stop-color="#096dd9"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="8" width="48" height="48" rx="12" fill="url(#bz-bg)"/>
+  <!-- 上升数据柱 -->
+  <rect x="12" y="36" width="6" height="12" rx="2" fill="#ffffff" opacity="0.85"/>
+  <rect x="23" y="29" width="6" height="19" rx="2" fill="#ffffff" opacity="0.92"/>
+  <rect x="34" y="22" width="6" height="26" rx="2" fill="#ffffff"/>
+  <!-- 折线箭头 + 琥珀端点 -->
+  <polyline points="13,33 25,26 37,17" fill="none" stroke="#e6f7ff" stroke-width="2.4"
+            stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M37 17 l-6 0.6 M37 17 l-0.6 6" stroke="#e6f7ff" stroke-width="2.4" stroke-linecap="round"/>
+  <circle cx="42" cy="14" r="3.4" fill="#faad14"/>
+  <!-- 文字标 -->
+  <text x="64" y="33" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="21"
+        font-weight="600" fill="#0d2b4e" letter-spacing="1">宝尊</text>
+  <text x="106" y="33" font-family="'Segoe UI',Arial,sans-serif" font-size="15" font-weight="600"
+        fill="#1890ff" letter-spacing="2.5">BAOZUN</text>
+  <text x="64" y="52" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13"
+        fill="#5b7a9d" letter-spacing="3">品牌数据中台</text>
+</svg>

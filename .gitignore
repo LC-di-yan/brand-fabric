@@ -1,0 +1,28 @@
+
+# Python
+# 数据与运行时产物
+# 环境与密钥
+# 编辑器
+*.db
+*.db-shm
+*.db-wal
+*.egg-info/
+*.py[cod]
+*.swp
+.DS_Store
+.env
+.idea/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.vscode/
+__pycache__/
+data/
+out/
+venv/
+volumes/
+
+# 本地私人文档（不含于开源版本）
+INTERVIEW.md
+docs/DEMO_SCRIPT.md
+docs/BAOZUN_BRAND_RESEARCH.md

@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="宝尊品牌数据中台 · 登录（演示项目，全部为模拟数据）" />
+<meta name="robots" content="noindex" />
+<title>登录 · 宝尊品牌数据中台</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<link rel="stylesheet" href="css/tokens.css" />
+<link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/components.css" />
+<link rel="stylesheet" href="css/views.css" />
+<link rel="stylesheet" href="css/brand-baozun.css" />
+<link rel="stylesheet" href="css/login.css" />
+</head>
+<body>
+<!-- 背景装饰层：纯 CSS/SVG 自绘（渐变 + 网格 + 漂浮几何），无外部图片依赖 -->
+<div class="bg-deco" aria-hidden="true">
+  <span class="bg-shape s1"></span>
+  <span class="bg-shape s2"></span>
+  <span class="bg-shape s3"></span>
+</div>
+
+<div class="login-wrap">
+  <div class="login-brand">
+    <div>
+      <div class="brand-lockup">
+        <img src="brand/logo-mark.svg" alt="宝尊品牌数据中台标识" width="46" height="46" />
+        <div class="name">宝尊 · 品牌数据中台<small>BAOZUN DATA PLATFORM</small></div>
+      </div>
+      <div class="sub">宝尊，全球品牌数字商业伙伴。面向多品牌代运营（TP）场景的经营数据底座：多租户隔离、跨平台口径统一、客服知识检索、多 Agent 编排。</div>
+      <div class="points">
+        <div><span class="k">店铺运营</span><span class="arrow">→</span> 经营概览与品牌对比</div>
+        <div><span class="k">数字营销</span><span class="arrow">→</span> 全渠道 GMV 三口径</div>
+        <div><span class="k">IT 解决方案</span><span class="arrow">→</span> 多 Agent 编排与质量门禁</div>
+        <div><span class="k">商品管理</span><span class="arrow">→</span> 跨平台主数据还原</div>
+        <div><span class="k">客户服务</span><span class="arrow">→</span> 智能知识检索与业务问答</div>
+      </div>
+      <div class="slogan">科技成就商业未来</div>
+    </div>
+    <div class="foot">宝尊电商 · 演示项目 · 全部为模拟数据 · 不含任何真实企业数据</div>
+  </div>
+
+  <div class="login-panel">
+    <h2>登录数据中台</h2>
+    <div class="hint">使用演示账号登录（点击下方账号可直接填入）</div>
+    <form id="loginForm" novalidate autocomplete="on">
+      <div class="field">
+        <label for="username">账号</label>
+        <input class="input" id="username" name="username" autocomplete="username"
+               placeholder="例如 nova" maxlength="48"
+               aria-describedby="usernameMsg" required />
+        <div class="field-msg" id="usernameMsg" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label for="password">密码</label>
+        <input class="input" id="password" name="password" type="password"
+               autocomplete="current-password" placeholder="请输入密码" maxlength="128"
+               aria-describedby="passwordMsg pwHint" required />
+        <!-- 密码强度提示：仅作输入反馈，真实校验以服务端策略为准 -->
+        <div class="pw-meter" id="pwMeter" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <div class="pw-hint" id="pwHint"></div>
+        <div class="field-msg" id="passwordMsg" aria-live="polite"></div>
+      </div>
+      <!-- 验证码：连续失败达到阈值后由服务端要求，前端按需展示 -->
+      <div class="field" id="captchaField" hidden>
+        <label for="captchaCode">验证码</label>
+        <div class="captcha-row">
+          <input class="input" id="captchaCode" inputmode="numeric" autocomplete="off"
+                 placeholder="输入右侧算式的结果" maxlength="3" aria-describedby="captchaMsg" />
+          <button type="button" class="captcha-box" id="captchaBox" title="点击刷新验证码" aria-label="验证码图片，点击刷新"></button>
+        </div>
+        <div class="field-msg" id="captchaMsg" aria-live="polite"></div>
+      </div>
+      <div class="errbox" id="err" style="display:none" role="alert"></div>
+      <button type="submit" class="btn primary" id="submit">登 录</button>
+    </form>
+    <div class="login-demo">
+      <h3>演示账号</h3>
+      <div id="accounts"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/**
+ * 登录页脚本（原生 JS，零依赖）
+ * 安全相关的前端职责：
+ *  - 客户端校验（白名单字符集、长度）——只改善体验，服务端为唯一权威；
+ *  - 提交节流：in-flight 锁 + 两次提交最小间隔 2s，防连点与脚本化爆破的第一道减速带；
+ *  - 统一失败文案：服务端对"账号不存在/密码错误"返回同一响应，前端不做区分；
+ *  - 验证码按需加载：服务端返回 CAPTCHA_REQUIRED 时才展示并要求填写；
+ *  - 错误信息一律 textContent 写入，杜绝 XSS 回显；
+ *  - 密码不写入任何存储/日志。
+ */
+const IS_FILE = location.protocol === "file:";
+const API_BASE = IS_FILE ? "http://127.0.0.1:8000" : "";
+
+const $ = (id) => document.getElementById(id);
+const form = $("loginForm"), userEl = $("username"), passEl = $("password");
+const errBox = $("err"), btn = $("submit");
+const captchaField = $("captchaField"), captchaCode = $("captchaCode"), captchaBox = $("captchaBox");
+
+/* ---------------- 演示账号 ---------------- */
+const ACCOUNTS = [
+  ["nova", "nova123", "品牌账号 · 仅本品牌"],
+  ["aurora", "aurora123", "品牌账号 · 仅本品牌"],
+  ["ops", "ops123", "运营支持 · 可跨租户"],
+  ["admin", "admin123", "平台管理员 · 全量"],
+];
+$("accounts").innerHTML = ACCOUNTS.map(([u, p, d]) =>
+  `<div class="acct" data-u="${u}" data-p="${p}" role="button" tabindex="0"><b>${u}</b><span>${d}</span></div>`
+).join("");
+document.querySelectorAll(".acct").forEach((node) => {
+  const fill = () => {
+    userEl.value = node.dataset.u;
+    passEl.value = node.dataset.p;
+    hideErr();
+    updateStrength();
+    validateUser();
+  };
+  node.onclick = fill;
+  node.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fill(); } };
+});
+
+/* ---------------- 客户端校验 ---------------- */
+const USER_RE = /^[A-Za-z0-9_.\-]{1,48}$/;
+function setMsg(el, input, msg) {
+  el.textContent = msg || "";
+  input.classList.toggle("invalid", !!msg);
+  return !msg;
+}
+function validateUser() {
+  const v = userEl.value.trim();
+  if (!v) return setMsg($("usernameMsg"), userEl, "请输入账号");
+  if (!USER_RE.test(v)) return setMsg($("usernameMsg"), userEl, "账号仅允许字母、数字、_ . -");
+  return setMsg($("usernameMsg"), userEl, "");
+}
+function validatePass() {
+  if (!passEl.value) return setMsg($("passwordMsg"), passEl, "请输入密码");
+  return setMsg($("passwordMsg"), passEl, "");
+}
+userEl.addEventListener("blur", validateUser);
+passEl.addEventListener("blur", validatePass);
+
+/* 密码强度：长度 + 字符类别（登录页仅作输入反馈，不作为放行条件） */
+function updateStrength() {
+  const v = passEl.value;
+  let score = 0;
+  if (v.length >= 6) score++;
+  if (v.length >= 10) score++;
+  if (/[a-z]/.test(v) && /[A-Z]/.test(v)) score++;
+  if (/\d/.test(v)) score++;
+  if (/[^A-Za-z0-9]/.test(v)) score++;
+  score = Math.min(4, score);
+  if (!v) score = 0;
+  const meter = $("pwMeter");
+  meter.className = "pw-meter" + (score ? " lv-" + score : "");
+  $("pwHint").textContent = v
+    ? ["", "太短", "较弱", "中等", "较强", "很强"][score] + "（至少 8 位且含字母与数字）"
+    : "";
+}
+passEl.addEventListener("input", updateStrength);
+
+/* ---------------- 错误与节流 ---------------- */
+function showErr(msg) { errBox.textContent = msg; errBox.style.display = "flex"; }
+function hideErr() { errBox.style.display = "none"; errBox.textContent = ""; }
+
+let inflight = false;
+let lastSubmitAt = 0;
+const MIN_INTERVAL_MS = 2000;
+
+/* ---------------- 验证码 ---------------- */
+let captchaId = null;
+async function refreshCaptcha() {
+  try {
+    const res = await fetch(API_BASE + "/v1/auth/captcha");
+    const data = await res.json();
+    captchaId = data.captcha_id;
+    captchaBox.innerHTML = data.svg;   // 服务端生成 SVG（文本），非用户输入，无 XSS 面
+    captchaCode.value = "";
+  } catch { captchaBox.innerHTML = "<span class='hint'>验证码加载失败</span>"; }
+}
+captchaBox.addEventListener("click", refreshCaptcha);
+function needCaptcha() {
+  captchaField.hidden = false;
+  refreshCaptcha();
+}
+
+/* ---------------- 提交 ---------------- */
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (inflight) return;
+  const now = Date.now();
+  if (now - lastSubmitAt < MIN_INTERVAL_MS) {
+    showErr("操作过于频繁，请稍候再试");
+    return;
+  }
+  hideErr();
+  const okUser = validateUser();
+  const okPass = validatePass();
+  if (!okUser || !okPass) return;
+  if (!captchaField.hidden && !captchaCode.value.trim()) {
+    setMsg($("captchaMsg"), captchaCode, "请输入验证码");
+    return;
+  }
+
+  inflight = true; lastSubmitAt = now;
+  btn.disabled = true; btn.textContent = "登录中…";
+  try {
+    const body = { username: userEl.value.trim(), password: passEl.value };
+    if (!captchaField.hidden) {
+      body.captcha_id = captchaId;
+      body.captcha_code = captchaCode.value.trim();
+    }
+    const res = await fetch(API_BASE + "/v1/auth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      credentials: IS_FILE ? "omit" : "same-origin",  // 浏览器模式携带会话 Cookie
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (data.code === "CAPTCHA_REQUIRED") {
+        needCaptcha();
+        showErr("连续失败次数较多，请完成验证码后重试");
+      } else if (data.code === "RATE_LIMITED") {
+        showErr("尝试次数过多，账号已临时锁定，请 " + Math.ceil((data.retry_after_seconds || 60) / 60) + " 分钟后再试");
+      } else {
+        // 服务端统一模糊文案，前端原样展示（不区分账号/密码原因）
+        showErr(data.message || "登录失败，请重试");
+        if (!captchaField.hidden) refreshCaptcha();
+      }
+      return;
+    }
+    sessionStorage.setItem("bdp_token", data.access_token);
+    sessionStorage.setItem("bdp_user", JSON.stringify({
+      username: data.username, role: data.role, tenant_id: data.tenant_id,
+    }));
+    if (data.csrf_token) sessionStorage.setItem("bdp_csrf", data.csrf_token);
+    location.href = IS_FILE ? "dashboard.html" : "/dashboard";
+  } catch {
+    showErr(IS_FILE
+      ? "无法连接服务。请先执行 python -m bdp.cli api 启动服务（默认 http://127.0.0.1:8000），再在本页登录。"
+      : "无法连接服务，请确认 API 已启动。");
+  } finally {
+    inflight = false;
+    btn.disabled = false; btn.textContent = "登 录";
+  }
+});
+</script>
+</body>
+</html>

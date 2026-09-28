@@ -1,0 +1,129 @@
+/* ============================================================
+   设计令牌 · brand-data-platform
+   明暗双主题：默认跟随系统，手动切换持久化（见 app.js）
+   修改令牌即可全局换肤；业务样式一律引用令牌，禁止硬编码色值
+   ============================================================ */
+
+:root {
+  /* ---- 品牌主色（降饱和深空蓝） ---- */
+  --accent-50: #eef4fb;
+  --accent-100: #dbe8f6;
+  --accent-300: #9dbddd;
+  --accent-500: #2e6cb4;
+  --accent-600: #265c9c;
+  --accent-700: #1e4a7d;
+
+  /* ---- 中性色 ---- */
+  --bg: #f2f4f8;
+  --surface: #ffffff;
+  --surface-2: #f7f9fc;
+  --surface-3: #eef2f7;
+  --border: #e2e8f0;
+  --border-strong: #c9d4e0;
+  --text-1: #17212f;
+  --text-2: #4e5d73;
+  --text-3: #8595aa;
+  --sidebar-bg: #0e1e33;
+  --sidebar-text: #a8bdd4;
+  --sidebar-text-strong: #eaf2fb;
+  --sidebar-hover: rgba(255, 255, 255, 0.07);
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+
+  /* ---- 语义色（bg / 文字成对） ---- */
+  --success: #176e43;  --success-bg: #e4f4ea;
+  --warning: #925e10;  --warning-bg: #fcf1dc;
+  --danger:  #b02a2a;  --danger-bg:  #fdeaea;
+  --info:    #265c9c;  --info-bg:    #e8f0fa;
+  --positive: #15803d;   /* 趋势向好（数值上升且为好） */
+  --negative: #c23232;   /* 趋势向坏 */
+
+  /* ---- 图表系列色（与令牌联动，charts.js 读取） ---- */
+  --chart-1: #2e6cb4;
+  --chart-2: #8fb0d4;
+  --chart-3: #d98e2b;
+  --chart-4: #4fa08a;
+  --chart-5: #8d7fc4;
+  --chart-grid: #e9edf3;
+  --chart-text: #8595aa;
+
+  /* ---- 阴影（蓝灰调，不用纯黑） ---- */
+  --shadow-sm: 0 1px 2px rgba(15, 39, 64, 0.05), 0 1px 3px rgba(15, 39, 64, 0.07);
+  --shadow-md: 0 3px 10px rgba(15, 39, 64, 0.09), 0 1px 3px rgba(15, 39, 64, 0.06);
+  --shadow-lg: 0 16px 44px rgba(15, 39, 64, 0.18), 0 4px 10px rgba(15, 39, 64, 0.08);
+
+  /* ---- 圆角阶梯 ---- */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+
+  /* ---- 字阶 ---- */
+  --fs-2xs: 10.5px;
+  --fs-xs: 11.5px;
+  --fs-sm: 12.5px;
+  --fs-md: 13.5px;
+  --fs-lg: 15px;
+  --fs-xl: 18px;
+  --fs-2xl: 24px;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  /* ---- 间距 ---- */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+
+  /* ---- 层级阶梯 ---- */
+  --z-sticky: 100;
+  --z-modal: 200;
+  --z-toast: 300;
+
+  /* ---- 动效 ---- */
+  --t-fast: 140ms ease;
+  --t-base: 220ms ease;
+}
+
+/* ---- 暗色主题（data-theme 由 app.js 写入 <html>） ---- */
+[data-theme="dark"] {
+  --bg: #0c131e;
+  --surface: #131d2c;
+  --surface-2: #182435;
+  --surface-3: #1e2c40;
+  --border: #24354c;
+  --border-strong: #344a66;
+  --text-1: #e7eef7;
+  --text-2: #9db0c7;
+  --text-3: #647a94;
+  --sidebar-bg: #080f1a;
+  --sidebar-text: #8ba3bf;
+  --sidebar-text-strong: #e7eef7;
+  --sidebar-hover: rgba(255, 255, 255, 0.06);
+  --sidebar-border: rgba(255, 255, 255, 0.07);
+
+  --accent-50: rgba(93, 152, 219, 0.14);
+  --accent-100: rgba(93, 152, 219, 0.22);
+  --accent-300: #6f9fcd;
+  --accent-500: #5d98db;
+  --accent-600: #7badE3;
+  --accent-700: #a3c6ec;
+
+  --success: #3fa876;  --success-bg: rgba(63, 168, 118, 0.14);
+  --warning: #d99f45;  --warning-bg: rgba(217, 159, 69, 0.13);
+  --danger:  #e06060;  --danger-bg:  rgba(224, 96, 96, 0.13);
+  --info:    #6f9fcd;  --info-bg:    rgba(111, 159, 205, 0.14);
+  --positive: #3fa876;
+  --negative: #e06060;
+
+  --chart-1: #5d98db;
+  --chart-2: #7ba3c9;
+  --chart-3: #d9a04a;
+  --chart-4: #58b097;
+  --chart-5: #9d8fd0;
+  --chart-grid: #223349;
+  --chart-text: #647a94;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 3px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
